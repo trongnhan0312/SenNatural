@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Default datasource uses SQLite for easy local setup. Replace with MySQL in production.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  fullName  String
+  username  String   @unique
+  password  String
+  email     String?  @unique
+  phone     String?
+  role      String   @default("STAFF")
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  InventoryHistory InventoryHistory[]
+}
+
+model Product {
+  id        Int      @id @default(autoincrement())
+  name      String
+  category  String?
+  volume    String?
+  quantity  Int      @default(0)
+  importPrice Float
+  sellPrice   Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  InventoryHistory InventoryHistory[]
+
+  @@index([category])
+  @@index([name])
+}
+
+model InventoryHistory {
+  id         Int      @id @default(autoincrement())
+  product    Product  @relation(fields: [productId], references: [id])
+  productId  Int
+  action     String
+  quantity   Int
+  importPrice Float?
+  sellPrice   Float?
+  note       String?
+  user       User?    @relation(fields: [userId], references: [id])
+  userId     Int?
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+model ChatHistory {
+  id        Int      @id @default(autoincrement())
+  message   String
+  response  String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// role and action stored as strings for SQLite compatibility
