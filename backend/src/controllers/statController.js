@@ -14,43 +14,86 @@ const dashboard = async (req, res) => {
 
     let boKetVolume = 0;
     let gingerVolume = 0;
+    let boKetBottles300 = 0;
+    let boKetBottles500 = 0;
+    let boKetBulkLiters = 0;
+    let gingerBottles300 = 0;
+    let gingerBottles500 = 0;
+    let gingerBulkLiters = 0;
 
     const categoryMap = {};
 
     products.forEach((p) => {
-      totalQuantity += p.quantity;
-      inventoryValue += p.quantity * p.importPrice;
-      retailValue += p.quantity * p.sellPrice;
+      const isShampoo = p.category === "Dầu gội";
+      const isRawMaterial = p.category === "Raw Material";
+      
+      let pInvValue = 0;
+      let pRetVal = 0;
+      let pQty = p.quantity;
+      
+      if (isShampoo) {
+        pInvValue = p.bottles300 * p.importPrice300 + p.bottles500 * p.importPrice500 + p.bulkLiters * p.importPriceBulk;
+        pRetVal = p.bottles300 * p.sellPrice300 + p.bottles500 * p.sellPrice500 + p.bulkLiters * p.sellPriceBulk;
+      } else if (isRawMaterial) {
+        pInvValue = p.bulkLiters * p.importPrice;
+        pRetVal = 0;
+      } else {
+        pInvValue = p.quantity * p.importPrice;
+        pRetVal = p.quantity * p.sellPrice;
+      }
+
+      totalQuantity += pQty;
+      inventoryValue += pInvValue;
+      retailValue += pRetVal;
       
       // Use lowStockThreshold from configuration or default to 10
-      if (p.quantity <= 10) {
+      if (p.quantity <= 10 && !isRawMaterial) {
         lowStockCount += 1;
       }
 
-      // Calculate volumes for shampoo bottles
-      let volMl = 0;
-      if (p.volume) {
-        const match = p.volume.match(/(\d+(?:\.\d+)?)\s*(ml|l|L)/i);
-        if (match) {
-          const val = parseFloat(match[1]);
-          const unit = match[2].toLowerCase();
-          if (unit === "l") {
-            volMl = val * 1000;
+      // Calculate volumes (actual bulk storage)
+      let liquidVolume = 0;
+      if (isShampoo || isRawMaterial) {
+        liquidVolume = p.bulkLiters * 1000;
+      } else {
+        let volMl = 0;
+        if (p.volume) {
+          const match = p.volume.match(/(\d+(?:\.\d+)?)\s*(ml|l|L)/i);
+          if (match) {
+            const val = parseFloat(match[1]);
+            const unit = match[2].toLowerCase();
+            if (unit === "l") {
+              volMl = val * 1000;
+            } else {
+              volMl = val;
+            }
           } else {
-            volMl = val;
+            const rawMatch = p.volume.match(/\d+/);
+            if (rawMatch) volMl = parseInt(rawMatch[0]);
           }
-        } else {
-          const rawMatch = p.volume.match(/\d+/);
-          if (rawMatch) volMl = parseInt(rawMatch[0]);
         }
+        liquidVolume = p.quantity * volMl;
       }
-      
-      const totalProdVolume = p.quantity * volMl;
+
       const normName = (p.name || "").toLowerCase();
       if (normName.includes("bo ket") || normName.includes("bồ kết")) {
-        boKetVolume += totalProdVolume;
+        boKetVolume += liquidVolume;
+        if (isShampoo || isRawMaterial) {
+          boKetBulkLiters += p.bulkLiters;
+        }
+        if (isShampoo) {
+          boKetBottles300 += p.bottles300;
+          boKetBottles500 += p.bottles500;
+        }
       } else if (normName.includes("gung") || normName.includes("gừng")) {
-        gingerVolume += totalProdVolume;
+        gingerVolume += liquidVolume;
+        if (isShampoo || isRawMaterial) {
+          gingerBulkLiters += p.bulkLiters;
+        }
+        if (isShampoo) {
+          gingerBottles300 += p.bottles300;
+          gingerBottles500 += p.bottles500;
+        }
       }
 
       // Category distribution
@@ -59,13 +102,9 @@ const dashboard = async (req, res) => {
         categoryMap[cat] = { category: cat, count: 0, quantity: 0, value: 0 };
       }
       categoryMap[cat].count += 1;
-      categoryMap[cat].quantity += p.quantity;
-      categoryMap[cat].value += p.quantity * p.importPrice;
+      categoryMap[cat].quantity += pQty;
+      categoryMap[cat].value += pInvValue;
     });
-
-    // Fallback volumes if unseeded or empty
-    if (boKetVolume === 0) boKetVolume = 12500;
-    if (gingerVolume === 0) gingerVolume = 8400;
 
     const categoryDistribution = Object.values(categoryMap);
 
@@ -93,8 +132,9 @@ const dashboard = async (req, res) => {
       if (h.action === "EXPORT") {
         const sellPrice = h.sellPrice || h.product.sellPrice || 0;
         const importPrice = h.importPrice || h.product.importPrice || 0;
-        monthlyRevenue += sellPrice * h.quantity;
-        monthlyCostOfSales += importPrice * h.quantity;
+        const qty = (h.bulkLiters && h.bulkLiters > 0) ? h.bulkLiters : h.quantity;
+        monthlyRevenue += sellPrice * qty;
+        monthlyCostOfSales += importPrice * qty;
       }
     });
 
@@ -110,10 +150,11 @@ const dashboard = async (req, res) => {
     history.forEach((h) => {
       const dateStr = dayjs(h.createdAt).format("DD/MM");
       if (chartMap[dateStr]) {
+        const qty = (h.bulkLiters && h.bulkLiters > 0) ? h.bulkLiters : h.quantity;
         if (h.action === "IMPORT") {
-          chartMap[dateStr].imports += h.quantity;
+          chartMap[dateStr].imports += qty;
         } else if (h.action === "EXPORT") {
-          chartMap[dateStr].exports += h.quantity;
+          chartMap[dateStr].exports += qty;
         }
       }
     });
@@ -137,8 +178,9 @@ const dashboard = async (req, res) => {
     let todayImport = 0;
     let todayExport = 0;
     todayHistory.forEach((h) => {
-      if (h.action === "IMPORT") todayImport += h.quantity;
-      if (h.action === "EXPORT") todayExport += h.quantity;
+      const qty = (h.bulkLiters && h.bulkLiters > 0) ? h.bulkLiters : h.quantity;
+      if (h.action === "IMPORT") todayImport += qty;
+      if (h.action === "EXPORT") todayExport += qty;
     });
 
     // 7. Generate dynamic AI Insights
@@ -146,7 +188,7 @@ const dashboard = async (req, res) => {
     const lowStockProducts = products.filter((p) => p.quantity <= 10);
     
     if (lowStockProducts.length > 0) {
-      const sampleNames = lowStockProducts.slice(0, 3).map((p) => `${p.name} (${p.volume})`).join(", ");
+      const sampleNames = lowStockProducts.slice(0, 3).map((p) => `${p.name}`).join(", ");
       aiInsights.push({
         type: "danger",
         message: `🚨 Cảnh báo tồn kho: ${lowStockProducts.length} sản phẩm sắp hết hàng (${sampleNames}). Hãy lên kế hoạch nhập hàng.`,
@@ -165,17 +207,20 @@ const dashboard = async (req, res) => {
         action: "EXPORT",
         createdAt: { gte: startOfMonth },
       },
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
+      _sum: { quantity: true, bulkLiters: true },
+      orderBy: { _sum: { quantity: "desc" } }, // Order by bottle quantity or bulk
       take: 1,
     });
 
     if (topGroup.length > 0) {
       const topProd = products.find((p) => p.id === topGroup[0].productId);
       if (topProd) {
+        const soldQty = topGroup[0]._sum.quantity || 0;
+        const soldBulk = topGroup[0]._sum.bulkLiters || 0;
+        const label = soldBulk > 0 ? `${soldBulk} L hàng xá` : `${soldQty} cái/chai`;
         aiInsights.push({
           type: "info",
-          message: `🔥 Bán chạy nhất: Product **${topProd.name}** đã xuất bán **${topGroup[0]._sum.quantity}** cái trong tháng này. Hãy đảm bảo đủ tồn kho cho mặt hàng này.`,
+          message: `🔥 Bán chạy nhất: Product **${topProd.name}** đã xuất bán **${label}** trong tháng này. Hãy đảm bảo đủ tồn kho cho mặt hàng này.`,
         });
       }
     }
@@ -203,6 +248,12 @@ const dashboard = async (req, res) => {
       aiInsights,
       boKetVolume,
       gingerVolume,
+      boKetBottles300,
+      boKetBottles500,
+      boKetBulkLiters,
+      gingerBottles300,
+      gingerBottles500,
+      gingerBulkLiters,
       todayImport,
       todayExport,
     });
@@ -223,7 +274,10 @@ const revenue = async (req, res) => {
     include: { product: true },
   });
   const total = rows.reduce(
-    (s, r) => s + (r.sellPrice || r.product.sellPrice || 0) * r.quantity,
+    (s, r) => {
+      const qty = (r.bulkLiters && r.bulkLiters > 0) ? r.bulkLiters : r.quantity;
+      return s + (r.sellPrice || r.product.sellPrice || 0) * qty;
+    },
     0,
   );
   res.json({ revenue: total });
@@ -240,11 +294,13 @@ const profit = async (req, res) => {
     include: { product: true },
   });
   const total = rows.reduce(
-    (s, r) =>
-      s +
-      ((r.sellPrice || r.product.sellPrice) -
-        (r.importPrice || r.product.importPrice)) *
-        r.quantity,
+    (s, r) => {
+      const qty = (r.bulkLiters && r.bulkLiters > 0) ? r.bulkLiters : r.quantity;
+      return s +
+        ((r.sellPrice || r.product.sellPrice) -
+          (r.importPrice || r.product.importPrice)) *
+          qty;
+    },
     0,
   );
   res.json({ profit: total });
@@ -254,7 +310,7 @@ const topProduct = async (req, res) => {
   const rows = await prisma.inventoryHistory.groupBy({
     by: ["productId"],
     where: { action: "EXPORT" },
-    _sum: { quantity: true },
+    _sum: { quantity: true, bulkLiters: true },
     orderBy: { _sum: { quantity: "desc" } },
     take: 10,
   });
@@ -263,10 +319,14 @@ const topProduct = async (req, res) => {
     where: { id: { in: ids } },
   });
   const map = products.reduce((m, p) => ((m[p.id] = p), m), {});
-  const data = rows.map((r) => ({
-    product: map[r.productId]?.name || r.productId,
-    quantity: r._sum.quantity,
-  }));
+  const data = rows.map((r) => {
+    const qty = (r._sum.bulkLiters && r._sum.bulkLiters > 0) ? r._sum.bulkLiters : r._sum.quantity;
+    const suffix = r._sum.bulkLiters && r._sum.bulkLiters > 0 ? " L" : "";
+    return {
+      product: map[r.productId]?.name || r.productId,
+      quantity: `${qty}${suffix}`,
+    };
+  });
   res.json({ data });
 };
 

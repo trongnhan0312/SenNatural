@@ -48,25 +48,70 @@ const getOne = async (req, res) => {
   }
 };
 
+const normalizeCategory = (category) => {
+  if (!category) return null;
+  const trimmed = category.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === "raw material" || lower === "nguyên liệu" || lower === "nguyên liệu xá" || lower === "nguyen lieu") {
+    return "Raw Material";
+  }
+  if (lower === "dầu gội" || lower === "dau goi" || lower === "dầu gội đầu") {
+    return "Dầu gội";
+  }
+  return trimmed;
+};
+
 const create = async (req, res) => {
   try {
-    const { name, category, volume, quantity = 0, importPrice = 0, sellPrice = 0 } = req.body;
+    const {
+      name,
+      category,
+      volume,
+      quantity = 0,
+      importPrice = 0,
+      sellPrice = 0,
+      bottles300 = 0,
+      bottles500 = 0,
+      bulkLiters = 0,
+      importPrice300 = 0,
+      sellPrice300 = 0,
+      importPrice500 = 0,
+      sellPrice500 = 0,
+      importPriceBulk = 0,
+      sellPriceBulk = 0,
+    } = req.body;
     
     if (!name || !name.trim()) {
       return res.status(400).json({ message: "Tên sản phẩm không được để trống." });
     }
 
+    const normalizedCat = normalizeCategory(category);
+    const isShampoo = normalizedCat === "Dầu gội";
+    const isRawMaterial = normalizedCat === "Raw Material";
+    const finalQty = isShampoo
+      ? (Number(bottles300) || 0) + (Number(bottles500) || 0)
+      : Number(quantity) || 0;
+
     const p = await prisma.product.create({
       data: {
         name: name.trim(),
-        category: category ? category.trim() : null,
+        category: normalizedCat,
         volume: volume ? volume.trim() : null,
-        quantity: Number(quantity) || 0,
+        quantity: finalQty,
         importPrice: Number(importPrice) || 0,
         sellPrice: Number(sellPrice) || 0,
+        bottles300: isShampoo ? (Number(bottles300) || 0) : 0,
+        bottles500: isShampoo ? (Number(bottles500) || 0) : 0,
+        bulkLiters: (isShampoo || isRawMaterial) ? (Number(bulkLiters) || 0) : 0,
+        importPrice300: Number(importPrice300) || 0,
+        sellPrice300: Number(sellPrice300) || 0,
+        importPrice500: Number(importPrice500) || 0,
+        sellPrice500: Number(sellPrice500) || 0,
+        importPriceBulk: Number(importPriceBulk) || 0,
+        sellPriceBulk: Number(sellPriceBulk) || 0,
       },
     });
-    res.status(201).json(p); // Created status (201) or standard response
+    res.status(201).json(p);
   } catch (error) {
     console.error("Create product error:", error);
     res.status(400).json({ message: "Không thể tạo sản phẩm. Vui lòng kiểm tra lại thông tin." });
@@ -80,15 +125,65 @@ const update = async (req, res) => {
       return res.status(400).json({ message: "ID sản phẩm không hợp lệ." });
     }
 
-    const { name, category, volume, quantity, importPrice, sellPrice } = req.body;
+    const {
+      name,
+      category,
+      volume,
+      quantity,
+      importPrice,
+      sellPrice,
+      bottles300,
+      bottles500,
+      bulkLiters,
+      importPrice300,
+      sellPrice300,
+      importPrice500,
+      sellPrice500,
+      importPriceBulk,
+      sellPriceBulk,
+    } = req.body;
+    
     const updateData = {};
     
     if (name !== undefined) updateData.name = name.trim();
-    if (category !== undefined) updateData.category = category ? category.trim() : null;
+    if (category !== undefined) {
+      updateData.category = normalizeCategory(category);
+    }
     if (volume !== undefined) updateData.volume = volume ? volume.trim() : null;
-    if (quantity !== undefined) updateData.quantity = Number(quantity);
     if (importPrice !== undefined) updateData.importPrice = Number(importPrice);
     if (sellPrice !== undefined) updateData.sellPrice = Number(sellPrice);
+    
+    // Package formats fields
+    if (bottles300 !== undefined) updateData.bottles300 = Number(bottles300);
+    if (bottles500 !== undefined) updateData.bottles500 = Number(bottles500);
+    if (bulkLiters !== undefined) updateData.bulkLiters = Number(bulkLiters);
+    if (importPrice300 !== undefined) updateData.importPrice300 = Number(importPrice300);
+    if (sellPrice300 !== undefined) updateData.sellPrice300 = Number(sellPrice300);
+    if (importPrice500 !== undefined) updateData.importPrice500 = Number(importPrice500);
+    if (sellPrice500 !== undefined) updateData.sellPrice500 = Number(sellPrice500);
+    if (importPriceBulk !== undefined) updateData.importPriceBulk = Number(importPriceBulk);
+    if (sellPriceBulk !== undefined) updateData.sellPriceBulk = Number(sellPriceBulk);
+
+    // Re-calculate quantity if product is a shampoo and packaging is updated
+    let isShampoo = false;
+    if (category !== undefined) {
+      isShampoo = updateData.category === "Dầu gội";
+    } else {
+      const current = await prisma.product.findUnique({ where: { id } });
+      isShampoo = current?.category === "Dầu gội";
+    }
+
+    if (quantity !== undefined) {
+      updateData.quantity = Number(quantity);
+    } else if (isShampoo && (bottles300 !== undefined || bottles500 !== undefined)) {
+      // Find current product if one of them is missing to sum up
+      const current = await prisma.product.findUnique({ where: { id } });
+      if (current) {
+        const b300 = bottles300 !== undefined ? Number(bottles300) : current.bottles300;
+        const b500 = bottles500 !== undefined ? Number(bottles500) : current.bottles500;
+        updateData.quantity = b300 + b500;
+      }
+    }
 
     const p = await prisma.product.update({
       where: { id },

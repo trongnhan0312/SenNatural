@@ -2,7 +2,7 @@ const prisma = require("../prismaClient");
 
 const importStock = async (req, res) => {
   try {
-    const { productId, quantity, importPrice, note } = req.body;
+    const { productId, quantity, importPrice, note, format } = req.body;
     
     const qty = Number(quantity);
     if (isNaN(qty) || qty <= 0) {
@@ -23,20 +23,75 @@ const importStock = async (req, res) => {
         throw new Error("PRODUCT_NOT_FOUND");
       }
 
-      const newQty = product.quantity + qty;
+      const isShampoo = product.category === "Dầu gội";
+      let updateData = {};
+      let price = importPrice ? Number(importPrice) : null;
+      let actualQty = qty;
+
+      let bottles300Delta = 0;
+      let bottles500Delta = 0;
+      let bulkLitersDelta = 0;
+
+      const isRawMaterial = product.category === "Raw Material";
+      if (isShampoo && format) {
+        if (format === "300ml") {
+          bottles300Delta = qty;
+          updateData = {
+            bottles300: product.bottles300 + qty,
+            quantity: product.quantity + qty,
+          };
+          price = price || product.importPrice300 || product.importPrice;
+        } else if (format === "500ml") {
+          bottles500Delta = qty;
+          updateData = {
+            bottles500: product.bottles500 + qty,
+            quantity: product.quantity + qty,
+          };
+          price = price || product.importPrice500 || product.importPrice;
+        } else if (format === "bulk") {
+          bulkLitersDelta = qty;
+          updateData = {
+            bulkLiters: product.bulkLiters + qty,
+          };
+          price = price || product.importPriceBulk || product.importPrice;
+          actualQty = 0; // bulk liter has no discrete bottle quantity count in standard fields
+        } else {
+          throw new Error("INVALID_FORMAT");
+        }
+      } else if (isRawMaterial) {
+        bulkLitersDelta = qty;
+        updateData = {
+          bulkLiters: product.bulkLiters + qty,
+        };
+        price = price || product.importPrice;
+        actualQty = 0;
+      } else {
+        updateData = { quantity: product.quantity + qty };
+        price = price || product.importPrice;
+      }
+
       const updatedProduct = await tx.product.update({
         where: { id: product.id },
-        data: { quantity: newQty },
+        data: updateData,
       });
+
+      const noteText = note || (isShampoo && format
+        ? `Nhập kho dầu gội (${format === 'bulk' ? qty + ' L hàng xá' : '+' + qty + ' chai ' + format})`
+        : isRawMaterial
+        ? `Nhập kho nguyên liệu xá: +${qty} L`
+        : `Nhập kho: +${qty} cái`);
 
       const hist = await tx.inventoryHistory.create({
         data: {
           productId: product.id,
           action: "IMPORT",
-          quantity: qty,
-          importPrice: importPrice ? Number(importPrice) : product.importPrice,
-          note: note || `Nhập kho: +${qty} cái`,
+          quantity: actualQty,
+          importPrice: price,
+          note: noteText,
           userId: req.user?.id,
+          bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+          bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+          bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
         },
       });
 
@@ -49,13 +104,16 @@ const importStock = async (req, res) => {
     if (error.message === "PRODUCT_NOT_FOUND") {
       return res.status(404).json({ message: "Không tìm thấy sản phẩm trong hệ thống." });
     }
+    if (error.message === "INVALID_FORMAT") {
+      return res.status(400).json({ message: "Quy cách đóng gói không hợp lệ." });
+    }
     res.status(500).json({ message: "Nhập kho thất bại." });
   }
 };
 
 const exportStock = async (req, res) => {
   try {
-    const { productId, quantity, sellPrice, note } = req.body;
+    const { productId, quantity, sellPrice, note, format } = req.body;
     
     const qty = Number(quantity);
     if (isNaN(qty) || qty <= 0) {
@@ -76,24 +134,90 @@ const exportStock = async (req, res) => {
         throw new Error("PRODUCT_NOT_FOUND");
       }
 
-      if (product.quantity < qty) {
-        throw new Error("INSUFFICIENT_STOCK");
+      const isShampoo = product.category === "Dầu gội";
+      let updateData = {};
+      let price = sellPrice ? Number(sellPrice) : null;
+      let actualQty = qty;
+
+      let bottles300Delta = 0;
+      let bottles500Delta = 0;
+      let bulkLitersDelta = 0;
+
+      const isRawMaterial = product.category === "Raw Material";
+      if (isShampoo && format) {
+        if (format === "300ml") {
+          if (product.bottles300 < qty) {
+            throw new Error("INSUFFICIENT_STOCK");
+          }
+          bottles300Delta = qty;
+          updateData = {
+            bottles300: product.bottles300 - qty,
+            quantity: product.quantity - qty,
+          };
+          price = price || product.sellPrice300 || product.sellPrice;
+        } else if (format === "500ml") {
+          if (product.bottles500 < qty) {
+            throw new Error("INSUFFICIENT_STOCK");
+          }
+          bottles500Delta = qty;
+          updateData = {
+            bottles500: product.bottles500 - qty,
+            quantity: product.quantity - qty,
+          };
+          price = price || product.sellPrice500 || product.sellPrice;
+        } else if (format === "bulk") {
+          if (product.bulkLiters < qty) {
+            throw new Error("INSUFFICIENT_STOCK");
+          }
+          bulkLitersDelta = qty;
+          updateData = {
+            bulkLiters: product.bulkLiters - qty,
+          };
+          price = price || product.sellPriceBulk || product.sellPrice;
+          actualQty = 0; // bulk liter has no bottle count in standard fields
+        } else {
+          throw new Error("INVALID_FORMAT");
+        }
+      } else if (isRawMaterial) {
+        if (product.bulkLiters < qty) {
+          throw new Error("INSUFFICIENT_STOCK");
+        }
+        bulkLitersDelta = qty;
+        updateData = {
+          bulkLiters: product.bulkLiters - qty,
+        };
+        price = price || product.sellPrice;
+        actualQty = 0;
+      } else {
+        if (product.quantity < qty) {
+          throw new Error("INSUFFICIENT_STOCK");
+        }
+        updateData = { quantity: product.quantity - qty };
+        price = price || product.sellPrice;
       }
 
-      const newQty = product.quantity - qty;
       const updatedProduct = await tx.product.update({
         where: { id: product.id },
-        data: { quantity: newQty },
+        data: updateData,
       });
+
+      const noteText = note || (isShampoo && format
+        ? `Xuất kho dầu gội (${format === 'bulk' ? qty + ' L hàng xá' : '-' + qty + ' chai ' + format})`
+        : isRawMaterial
+        ? `Xuất kho nguyên liệu xá: -${qty} L`
+        : `Xuất kho: -${qty} cái`);
 
       const hist = await tx.inventoryHistory.create({
         data: {
           productId: product.id,
           action: "EXPORT",
-          quantity: qty,
-          sellPrice: sellPrice ? Number(sellPrice) : product.sellPrice,
-          note: note || `Xuất kho: -${qty} cái`,
+          quantity: actualQty,
+          sellPrice: price,
+          note: noteText,
           userId: req.user?.id,
+          bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+          bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+          bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
         },
       });
 
@@ -108,6 +232,9 @@ const exportStock = async (req, res) => {
     }
     if (error.message === "INSUFFICIENT_STOCK") {
       return res.status(400).json({ message: "Số lượng hàng trong kho không đủ để xuất." });
+    }
+    if (error.message === "INVALID_FORMAT") {
+      return res.status(400).json({ message: "Quy cách đóng gói không hợp lệ." });
     }
     res.status(500).json({ message: "Xuất kho thất bại." });
   }

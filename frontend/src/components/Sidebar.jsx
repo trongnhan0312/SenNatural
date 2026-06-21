@@ -17,7 +17,7 @@ const items = [
 export default function Sidebar({ open, onClose }) {
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 w-72 overflow-hidden border-r border-white/20 bg-white/60 backdrop-blur-xl shadow-soft transition-transform duration-200 md:static md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+      className={`fixed inset-y-0 left-0 z-40 w-72 overflow-hidden border-r border-white/20 bg-white/60 backdrop-blur-xl shadow-soft transition-transform duration-200 lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
     >
       <div className="flex h-full flex-col px-4 py-6">
         <div className="mb-8 flex items-center gap-3 rounded-[24px] border border-white/30 bg-white/40 px-4 py-3.5 shadow-sm">
@@ -55,7 +55,12 @@ export default function Sidebar({ open, onClose }) {
           })}
         </nav>
 
-        <div className="mt-6 rounded-[24px] border border-white/40 bg-white/30 p-4 text-xs leading-5 text-slate-500 shadow-sm">
+        <div className="mt-6 rounded-[24px] border border-white/40 bg-white/30 p-4 text-xs leading-5 text-slate-500 shadow-sm overflow-hidden relative">
+          <img 
+            src="/gung.jpg" 
+            alt="Sen Natural Herbs" 
+            className="w-full h-28 object-cover rounded-xl mb-3 shadow-sm"
+          />
           <p className="font-bold text-slate-700 uppercase tracking-wider mb-1">Trợ giúp nhanh</p>
           <p>Dùng tab <strong>AI Chat</strong> để gõ lệnh bằng Tiếng Việt giúp nhập xuất hoặc chỉnh sửa hàng nhanh chóng.</p>
         </div>

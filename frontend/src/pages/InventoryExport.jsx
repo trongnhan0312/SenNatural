@@ -9,6 +9,7 @@ export default function InventoryExport() {
   const [productId, setProductId] = React.useState("");
   const [quantity, setQuantity] = React.useState(0);
   const [sellPrice, setSellPrice] = React.useState("");
+  const [format, setFormat] = React.useState("300ml");
   const [products, setProducts] = React.useState([]);
   const [status, setStatus] = React.useState("");
   const [error, setError] = React.useState("");
@@ -23,9 +24,20 @@ export default function InventoryExport() {
         headers: { Authorization: "Bearer " + localStorage.getItem("token") },
       });
       setProducts(res.data.data);
-      if (res.data.data[0]) setProductId(res.data.data[0].id);
+      if (res.data.data[0]) {
+        setProductId(res.data.data[0].id);
+        setFormat(res.data.data[0].category === "Dầu gội" ? "300ml" : "");
+      }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleProductChange = (id) => {
+    setProductId(id);
+    const prod = products.find(p => p.id === Number(id));
+    if (prod) {
+      setFormat(prod.category === "Dầu gội" ? "300ml" : "");
     }
   };
 
@@ -36,16 +48,19 @@ export default function InventoryExport() {
     try {
       await axios.post(
         api("/inventory/export"),
-        { productId, quantity, sellPrice },
+        { productId, quantity, sellPrice, format: format || null },
         { headers: { Authorization: "Bearer " + localStorage.getItem("token") } }
       );
       setStatus("Ghi nhận xuất kho thành công!");
       setQuantity(0);
       setSellPrice("");
+      await fetch();
     } catch (err) {
       setError(err.response?.data?.message || "Xuất kho thất bại. Vui lòng thử lại.");
     }
   };
+
+  const selectedProd = products.find(p => p.id === Number(productId));
 
   return (
     <motion.div
@@ -96,27 +111,53 @@ export default function InventoryExport() {
               <label className="text-sm font-semibold text-slate-700">Chọn sản phẩm xuất</label>
               <select
                 value={productId}
-                onChange={(e) => setProductId(e.target.value)}
+                onChange={(e) => handleProductChange(e.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3.5 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
               >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.volume}) - Hiện có: {p.quantity} cái
-                  </option>
-                ))}
+                {products.map((p) => {
+                  const isShampoo = p.category === "Dầu gội";
+                  const isRaw = p.category === "Raw Material";
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {isShampoo
+                        ? `${p.name} (300ml: ${p.bottles300} chai | 500ml: ${p.bottles500} chai | Xá: ${p.bulkLiters} L)`
+                        : isRaw
+                        ? `${p.name} (Nguyên liệu xá) - Hiện có: ${p.bulkLiters} L`
+                        : `${p.name} (${p.volume}) - Hiện có: ${p.quantity} cái`}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
+            {selectedProd?.category === "Dầu gội" && (
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">Quy cách đóng gói xuất</label>
+                <select
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3.5 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                >
+                  <option value="300ml">Chai 300ml</option>
+                  <option value="500ml">Chai 500ml</option>
+                  <option value="bulk">Hàng xá (Lít)</option>
+                </select>
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Số lượng xuất</label>
+                <label className="text-sm font-semibold text-slate-700">
+                  {format === "bulk" ? "Số lượng xuất (Lít)" : "Số lượng xuất (Cái/Chai)"}
+                </label>
                 <input
                   type="number"
+                  step={format === "bulk" ? "0.1" : "1"}
                   value={quantity}
                   onChange={(e) => setQuantity(Number(e.target.value))}
                   className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3.5 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
                   required
-                  min="1"
+                  min={format === "bulk" ? "0.1" : "1"}
                 />
               </div>
               <div className="space-y-1">

@@ -16,6 +16,15 @@ export default function Products() {
     quantity: 0,
     importPrice: 0,
     sellPrice: 0,
+    bottles300: 0,
+    bottles500: 0,
+    bulkLiters: 0,
+    importPrice300: 0,
+    sellPrice300: 0,
+    importPrice500: 0,
+    sellPrice500: 0,
+    importPriceBulk: 0,
+    sellPriceBulk: 0,
   });
   const [error, setError] = React.useState("");
   const [success, setSuccess] = React.useState("");
@@ -23,6 +32,7 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = React.useState(null);
   const [productHistory, setProductHistory] = React.useState([]);
   const [loadingHistory, setLoadingHistory] = React.useState(false);
+  const [showForm, setShowForm] = React.useState(false);
 
   React.useEffect(() => {
     try {
@@ -71,7 +81,17 @@ export default function Products() {
       quantity: 0,
       importPrice: 0,
       sellPrice: 0,
+      bottles300: 0,
+      bottles500: 0,
+      bulkLiters: 0,
+      importPrice300: 0,
+      sellPrice300: 0,
+      importPrice500: 0,
+      sellPrice500: 0,
+      importPriceBulk: 0,
+      sellPriceBulk: 0,
     });
+    setShowForm(true);
   };
 
   const handleEdit = (product) => {
@@ -83,9 +103,22 @@ export default function Products() {
       quantity: product.quantity,
       importPrice: product.importPrice,
       sellPrice: product.sellPrice,
+      bottles300: product.bottles300 || 0,
+      bottles500: product.bottles500 || 0,
+      bulkLiters: product.bulkLiters || 0,
+      importPrice300: product.importPrice300 || 0,
+      sellPrice300: product.sellPrice300 || 0,
+      importPrice500: product.importPrice500 || 0,
+      sellPrice500: product.sellPrice500 || 0,
+      importPriceBulk: product.importPriceBulk || 0,
+      sellPriceBulk: product.sellPriceBulk || 0,
     });
-    // Scroll editor into view on mobile
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditing(null);
   };
 
   const handleSubmit = async (e) => {
@@ -105,7 +138,7 @@ export default function Products() {
         setSuccess("Đã thêm sản phẩm mới thành công.");
       }
       await fetchProducts();
-      resetForm();
+      closeForm();
     } catch (err) {
       setError(err.response?.data?.message || "Lưu sản phẩm thất bại. Vui lòng kiểm tra lại.");
     }
@@ -143,7 +176,7 @@ export default function Products() {
   }, [productHistory]);
 
   return (
-    <div className={isAdmin ? "grid gap-6 xl:grid-cols-[1.7fr_1.3fr]" : "grid gap-6 grid-cols-1"}>
+    <div className="grid gap-6 grid-cols-1">
       {/* Products List Section */}
       <section className="rounded-[32px] border border-white/20 bg-white/40 p-6 shadow-soft backdrop-blur-xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -182,9 +215,9 @@ export default function Products() {
           </div>
         </div>
 
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center text-slate-500">
+            <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center text-slate-500">
               Không tìm thấy sản phẩm nào.
             </div>
           ) : (
@@ -195,41 +228,82 @@ export default function Products() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: idx * 0.04 }}
                 onClick={() => handleProductClick(p)}
-                className="rounded-[24px] border border-white/30 bg-white/50 p-4 shadow-sm transition hover:border-primary/50 hover:bg-white/80 cursor-pointer hover:shadow-md flex items-center gap-4"
+                className="group relative rounded-[28px] border border-white/30 bg-white/50 p-5 shadow-soft transition-all duration-300 hover:border-primary/40 hover:bg-white/80 cursor-pointer hover:shadow-lg flex flex-col justify-between"
               >
-                <img
-                  src={
-                    p.name.toLowerCase().includes("gừng") || p.name.toLowerCase().includes("gung")
-                      ? "/ginger_bottle.jpg"
-                      : p.name.toLowerCase().includes("bồ kết") || p.name.toLowerCase().includes("bo ket")
-                      ? "/boket_bottle.jpg"
-                      : "/logo.jpg"
-                  }
-                  alt={p.name}
-                  className="h-16 w-16 rounded-2xl object-cover border border-white/40 shadow-sm bg-white shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-lg font-bold text-slate-900 truncate">{p.name}</p>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs font-semibold">
-                        <span className="rounded-full bg-primaryLight px-2.5 py-0.5 text-primary">{p.category}</span>
-                        <span className="rounded-full bg-slate-200/80 px-2.5 py-0.5 text-slate-600">{p.volume}</span>
+                <div>
+                  {/* Image container */}
+                  <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-100 border border-white/40 shadow-inner mb-4 flex items-center justify-center">
+                    <img
+                      src={
+                        p.name.toLowerCase().includes("gừng") || p.name.toLowerCase().includes("gung")
+                          ? "/gung.jpg"
+                          : p.name.toLowerCase().includes("bồ kết") || p.name.toLowerCase().includes("bo ket")
+                          ? "/boket.jpg"
+                          : "/logo.jpg"
+                      }
+                      alt={p.name}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <span className="absolute top-2 left-2 rounded-full bg-primary/15 backdrop-blur-md px-2.5 py-0.5 text-[10px] font-extrabold text-primary uppercase tracking-wider">
+                      {p.category === "Raw Material" ? "Nguyên liệu" : p.category}
+                    </span>
+                  </div>
+
+                  {/* Product Info */}
+                  <div className="space-y-1.5 px-1">
+                    <h3 className="text-base font-bold text-slate-900 leading-tight group-hover:text-primary transition truncate">
+                      {p.name}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium">Dung tích: <b className="text-slate-700">{p.volume || "N/A"}</b></p>
+                  </div>
+                </div>
+
+                {/* Stock & Action footer */}
+                <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-3">
+                  {p.category === "Dầu gội" ? (
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between font-bold text-slate-500">
+                        <span>Tổng thể tích:</span>
+                        <span className="text-primary font-black">{(p.bottles300 * 0.3 + p.bottles500 * 0.5 + p.bulkLiters).toFixed(1)} L</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 text-[10px] text-center text-slate-600 bg-slate-100/50 p-2 rounded-xl mt-1 border border-slate-200/20 font-semibold">
+                        <div>300ml: <b>{p.bottles300}c</b></div>
+                        <div>500ml: <b>{p.bottles500}c</b></div>
+                        <div>Xá: <b>{p.bulkLiters}L</b></div>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600 font-medium shrink-0">
-                      <div>Tồn kho: <span className="font-extrabold text-slate-900">{p.quantity}</span></div>
-                      <div>Giá bán: <span className="font-extrabold text-slate-950">{p.sellPrice.toLocaleString("vi-VN")}đ</span></div>
+                  ) : p.category === "Raw Material" ? (
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between font-bold text-slate-500">
+                        <span>Thể tích xá:</span>
+                        <span className="text-primary font-black">{p.bulkLiters} L</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-slate-500">
+                        <span>Giá bán:</span>
+                        <span className="text-slate-900 font-black">{p.sellPrice.toLocaleString("vi-VN")}đ</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between font-bold text-slate-500">
+                        <span>Tồn kho:</span>
+                        <span className="text-slate-900 font-black">{p.quantity}</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-slate-500">
+                        <span>Giá bán:</span>
+                        <span className="text-slate-900 font-black">{p.sellPrice.toLocaleString("vi-VN")}đ</span>
+                      </div>
+                    </div>
+                  )}
+
                   {isAdmin && (
-                    <div className="mt-3 flex gap-2">
+                    <div className="flex gap-2 pt-1.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleEdit(p);
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-100 shadow-sm"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 shadow-sm"
                       >
                         <Edit3 size={12} /> Sửa
                       </button>
@@ -238,7 +312,7 @@ export default function Products() {
                           e.stopPropagation();
                           handleDelete(p.id);
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-700 shadow-sm"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2 text-xs font-bold text-white transition hover:bg-red-700 shadow-sm"
                       >
                         <Trash2 size={12} /> Xóa
                       </button>
@@ -251,13 +325,36 @@ export default function Products() {
         </div>
       </section>
 
-      {/* Editor Section */}
-      {isAdmin && (
-        <aside className="rounded-[32px] border border-white/20 bg-white/40 p-6 shadow-soft backdrop-blur-xl h-fit">
-          <h2 className="text-xl font-bold text-slate-800">{editing ? "Chỉnh sửa chi tiết" : "Tạo sản phẩm mới"}</h2>
-          <p className="mt-2 text-sm text-slate-600">Nhập đầy đủ các thông tin và giá trị của sản phẩm bên dưới.</p>
+      {/* Editor Modal Section */}
+      <AnimatePresence>
+        {isAdmin && showForm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl rounded-[32px] border border-white/20 bg-white/95 p-6 md:p-8 shadow-xl backdrop-blur-md overflow-y-auto max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800">{editing ? "Chỉnh sửa chi tiết" : "Tạo sản phẩm mới"}</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Nhập đầy đủ các thông tin và giá trị của sản phẩm bên dưới.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-100 shadow-sm"
+                >
+                  Đóng
+                </button>
+              </div>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
               <label className="text-sm font-semibold text-slate-700">Tên sản phẩm</label>
               <input
@@ -273,9 +370,15 @@ export default function Products() {
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
                 className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                placeholder="Ví dụ: Dầu gội, Chăm sóc"
+                placeholder="Ví dụ: Dầu gội, Nguyên liệu, Chăm sóc"
+                list="category-options"
                 required
               />
+              <datalist id="category-options">
+                <option value="Dầu gội" />
+                <option value="Nguyên liệu" />
+                <option value="Chăm sóc" />
+              </datalist>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-semibold text-slate-700">Dung tích</label>
@@ -287,53 +390,185 @@ export default function Products() {
                 required
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Tồn kho ban đầu</label>
-                <input
-                  type="number"
-                  value={form.quantity}
-                  onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-                  className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                  disabled={!!editing} // quantity should be updated via import/export transactions if editing
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Giá nhập (đ)</label>
-                <input
-                  type="number"
-                  value={form.importPrice}
-                  onChange={(e) => setForm({ ...form, importPrice: Number(e.target.value) })}
-                  className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-semibold text-slate-700">Giá bán (đ)</label>
-              <input
-                type="number"
-                value={form.sellPrice}
-                onChange={(e) => setForm({ ...form, sellPrice: Number(e.target.value) })}
-                className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-              />
-            </div>
+            {form.category === "Dầu gội" ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Tồn kho 300ml</label>
+                    <input
+                      type="number"
+                      value={form.bottles300}
+                      onChange={(e) => setForm({ ...form, bottles300: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Tồn kho 500ml</label>
+                    <input
+                      type="number"
+                      value={form.bottles500}
+                      onChange={(e) => setForm({ ...form, bottles500: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Hàng xá (Lít)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={form.bulkLiters}
+                      onChange={(e) => setForm({ ...form, bulkLiters: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá nhập 300ml (đ)</label>
+                    <input
+                      type="number"
+                      value={form.importPrice300}
+                      onChange={(e) => setForm({ ...form, importPrice300: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá bán 300ml (đ)</label>
+                    <input
+                      type="number"
+                      value={form.sellPrice300}
+                      onChange={(e) => setForm({ ...form, sellPrice300: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá nhập 500ml (đ)</label>
+                    <input
+                      type="number"
+                      value={form.importPrice500}
+                      onChange={(e) => setForm({ ...form, importPrice500: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá bán 500ml (đ)</label>
+                    <input
+                      type="number"
+                      value={form.sellPrice500}
+                      onChange={(e) => setForm({ ...form, sellPrice500: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá nhập Lít xá (đ)</label>
+                    <input
+                      type="number"
+                      value={form.importPriceBulk}
+                      onChange={(e) => setForm({ ...form, importPriceBulk: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá bán Lít xá (đ)</label>
+                    <input
+                      type="number"
+                      value={form.sellPriceBulk}
+                      onChange={(e) => setForm({ ...form, sellPriceBulk: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : form.category?.toLowerCase() === "raw material" || form.category?.toLowerCase() === "nguyên liệu" ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Thể tích (Lít)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={form.bulkLiters}
+                      onChange={(e) => setForm({ ...form, bulkLiters: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá nhập (đ)</label>
+                    <input
+                      type="number"
+                      value={form.importPrice}
+                      onChange={(e) => setForm({ ...form, importPrice: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-slate-700">Giá bán (đ)</label>
+                  <input
+                    type="number"
+                    value={form.sellPrice}
+                    onChange={(e) => setForm({ ...form, sellPrice: Number(e.target.value) })}
+                    className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Số lượng tồn kho</label>
+                    <input
+                      type="number"
+                      value={form.quantity}
+                      onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-semibold text-slate-700">Giá nhập (đ)</label>
+                    <input
+                      type="number"
+                      value={form.importPrice}
+                      onChange={(e) => setForm({ ...form, importPrice: Number(e.target.value) })}
+                      className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-slate-700">Giá bán (đ)</label>
+                  <input
+                    type="number"
+                    value={form.sellPrice}
+                    onChange={(e) => setForm({ ...form, sellPrice: Number(e.target.value) })}
+                    className="w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  />
+                </div>
+              </>
+            )}
             <div className="flex gap-3 pt-2">
               <button type="submit" className="btn-primary w-full justify-center">
                 {editing ? "Cập nhật sản phẩm" : "Tạo sản phẩm"}
               </button>
-              {editing && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="btn-secondary w-full justify-center"
-                >
-                  Hủy
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={closeForm}
+                className="btn-secondary w-full justify-center"
+              >
+                Hủy
+              </button>
             </div>
           </form>
-        </aside>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Purchase Date Details Modal */}
       <AnimatePresence>
@@ -355,9 +590,9 @@ export default function Products() {
                   <img
                     src={
                       selectedProduct.name.toLowerCase().includes("gừng") || selectedProduct.name.toLowerCase().includes("gung")
-                        ? "/ginger_bottle.jpg"
+                        ? "/gung.jpg"
                         : selectedProduct.name.toLowerCase().includes("bồ kết") || selectedProduct.name.toLowerCase().includes("bo ket")
-                        ? "/boket_bottle.jpg"
+                        ? "/boket.jpg"
                         : "/logo.jpg"
                     }
                     alt={selectedProduct.name}

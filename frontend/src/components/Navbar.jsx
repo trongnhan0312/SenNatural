@@ -25,19 +25,19 @@ export default function Navbar({ onToggle }) {
       <div className="flex items-center justify-between gap-3 px-4 py-3 md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <button
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 md:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 lg:hidden"
             onClick={onToggle}
             aria-label="Toggle sidebar"
           >
             <Menu size={18} />
           </button>
-          <div className="hidden md:flex flex-col">
+          <div className="hidden lg:flex flex-col">
             <span className="text-sm font-semibold text-slate-900">Sen Natural</span>
             <span className="text-xs text-slate-500">Admin Dashboard</span>
           </div>
         </div>
 
-        <div className="flex-1 items-center justify-center hidden md:flex">
+        <div className="flex-1 items-center justify-center hidden lg:flex">
           <div className="relative w-full max-w-md">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
             <input

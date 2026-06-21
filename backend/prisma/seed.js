@@ -17,38 +17,44 @@ async function main() {
     },
   });
 
+  // Clean up any historical individual products from previous db structure to avoid conflicts
+  await prisma.inventoryHistory.deleteMany({});
+  await prisma.product.deleteMany({});
+
   const products = [
     {
-      name: "Dầu gội Bồ Kết 300ml",
+      name: "Dầu gội Bồ Kết",
       category: "Dầu gội",
-      volume: "300ml",
-      quantity: 15,
+      volume: "Nhiều loại",
+      quantity: 31,
+      bottles300: 15,
+      bottles500: 16,
+      bulkLiters: 0.0,
       importPrice: 30000,
       sellPrice: 60000,
+      importPrice300: 30000,
+      sellPrice300: 60000,
+      importPrice500: 45000,
+      sellPrice500: 80000,
+      importPriceBulk: 50000,
+      sellPriceBulk: 90000,
     },
     {
-      name: "Dầu gội Bồ Kết 500ml",
+      name: "Dầu gội Gừng",
       category: "Dầu gội",
-      volume: "500ml",
-      quantity: 16,
-      importPrice: 45000,
-      sellPrice: 80000,
-    },
-    {
-      name: "Dầu gội Gừng 300ml",
-      category: "Dầu gội",
-      volume: "300ml",
-      quantity: 13,
+      volume: "Nhiều loại",
+      quantity: 22,
+      bottles300: 13,
+      bottles500: 9,
+      bulkLiters: 0.0,
       importPrice: 28000,
       sellPrice: 55000,
-    },
-    {
-      name: "Dầu gội Gừng 500ml",
-      category: "Dầu gội",
-      volume: "500ml",
-      quantity: 9,
-      importPrice: 42000,
-      sellPrice: 75000,
+      importPrice300: 28000,
+      sellPrice300: 55000,
+      importPrice500: 42000,
+      sellPrice500: 75000,
+      importPriceBulk: 45000,
+      sellPriceBulk: 80000,
     },
     {
       name: "Xịt tóc",
@@ -57,6 +63,9 @@ async function main() {
       quantity: 100,
       importPrice: 20000,
       sellPrice: 40000,
+      bottles300: 0,
+      bottles500: 0,
+      bulkLiters: 0.0,
     },
     {
       name: "Ủ tóc",
@@ -65,6 +74,9 @@ async function main() {
       quantity: 60,
       importPrice: 25000,
       sellPrice: 50000,
+      bottles300: 0,
+      bottles500: 0,
+      bulkLiters: 0.0,
     },
   ];
 
@@ -75,13 +87,7 @@ async function main() {
     } else {
       await prisma.product.update({
         where: { id: exists.id },
-        data: {
-          quantity: p.quantity,
-          importPrice: p.importPrice,
-          sellPrice: p.sellPrice,
-          volume: p.volume,
-          category: p.category,
-        },
+        data: p,
       });
     }
   }

@@ -43,11 +43,12 @@ const exportExcel = async (req, res) => {
   });
 
   data.forEach((d) => {
+    const qtyVal = d.bulkLiters ? `${d.bulkLiters} L` : d.quantity;
     const row = ws.addRow({
       date: dayjs(d.createdAt).format("YYYY-MM-DD HH:mm"),
       product: d.product.name,
       action: d.action,
-      quantity: d.quantity,
+      quantity: qtyVal,
       importPrice: d.importPrice || "",
       sellPrice: d.sellPrice || "",
       user: d.user?.fullName || "",
@@ -148,7 +149,8 @@ const exportPDF = async (req, res) => {
     // translate action to Vietnamese
     const actionText = d.action === "IMPORT" ? "Nhập kho" : "Xuất kho";
     doc.text(actionText, 260, y, { width: 60 });
-    doc.text(String(d.quantity), 320, y, { width: 50, align: "right" });
+    const qtyText = d.bulkLiters ? `${d.bulkLiters} L` : String(d.quantity);
+    doc.text(qtyText, 320, y, { width: 50, align: "right" });
     doc.text(d.importPrice ? d.importPrice.toLocaleString("vi-VN") + "đ" : "-", 370, y, { width: 65, align: "right" });
     doc.text(d.sellPrice ? d.sellPrice.toLocaleString("vi-VN") + "đ" : "-", 440, y, { width: 65, align: "right" });
     doc.text(d.user?.fullName || "-", 510, y, { width: 62 });

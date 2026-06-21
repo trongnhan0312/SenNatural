@@ -127,6 +127,110 @@ const expandAbbreviations = (text = "") => {
   return expandedText;
 };
 
+const formatProductName = (name) => {
+  if (!name) return "";
+  const norm = name.toLowerCase();
+  if (norm.includes("bo ket") || norm.includes("bồ kết")) {
+    return "Bồ Kết";
+  }
+  if (norm.includes("ginger") || norm.includes("gừng")) {
+    return "Ginger";
+  }
+  if (norm.includes("herbal extract") || norm.includes("chất chiết thảo mộc")) {
+    return "Herbal Extract";
+  }
+  return name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+};
+
+const findMatch = (prodName, dbProds) => {
+  const cleanSearch = normalize(prodName);
+  if (!cleanSearch) return null;
+  
+  let match = dbProds.find(p => normalize(p.name).includes(cleanSearch) || cleanSearch.includes(normalize(p.name)));
+  if (match) return match;
+  
+  for (const [abbr, full] of Object.entries(aliasMap)) {
+    if (cleanSearch.includes(abbr)) {
+      const cleanFull = normalize(full);
+      match = dbProds.find(p => normalize(p.name).includes(cleanFull) || cleanFull.includes(normalize(p.name)));
+      if (match) return match;
+    }
+  }
+  return null;
+};
+
+const parseInventoryCommand = (text) => {
+  const norm = text.toLowerCase();
+  
+  const isProduction = /(?:produce|bottle|bottling|manufacture|packaging|convert to bottles|sản xuất|đóng chai)\b/i.test(norm);
+  const isSales = /(?:sell|sale|bán|xuất|export|sales)\b/i.test(norm) && !isProduction;
+  const isReceive = /(?:receive|add|nhập|import|thêm|cộng)\b/i.test(norm) && !isProduction && !isSales;
+  
+  const hasBottleKeyword = /(?:bottle|bottles|chai|lọ)\b/i.test(norm);
+  
+  let volumeMl = null;
+  const lFirst = norm.match(/(\d+(?:\.\d+)?)\s*(?:l|liter|litre|lít)\b/i);
+  if (lFirst) {
+    volumeMl = Math.round(parseFloat(lFirst[1]) * 1000);
+  } else {
+    const mlFirst = norm.match(/(\d+)\s*(?:ml|mililit)\b/i);
+    if (mlFirst) {
+      volumeMl = parseInt(mlFirst[1]);
+    }
+  }
+  
+  let quantity = null;
+  const qtyMatch = norm.match(/(\d+)\s*(?:bottle|bottles|chai|cái|lọ)\b/i) || norm.match(/\b(?:nhập|bán|xuất|produce|sell|receive|add|cộng|thêm)\s+(\d+)\b/i);
+  if (qtyMatch) {
+    quantity = parseInt(qtyMatch[1]);
+  } else {
+    let cleanText = norm
+      .replace(/\d+(?:\.\d+)?\s*(?:l|liter|litre|lít|ml)\b/gi, "")
+      .replace(/\d+(?:\.\d+)?\s*(?:k|ngàn|nghìn|triệu|trieu|vnd|đ|d|đồng)\b/gi, "")
+      .replace(/\b\d{5,}\b/g, "");
+    const numMatch = cleanText.match(/\b\d+\b/);
+    if (numMatch) {
+      quantity = parseInt(numMatch[0]);
+    }
+  }
+  
+  let price = null;
+  const kMatch = norm.match(/(\d+(?:\.\d+)?)\s*(?:k|ngàn|nghìn)\b/i);
+  if (kMatch) {
+    price = Math.round(parseFloat(kMatch[1]) * 1000);
+  } else {
+    const mMatch = norm.match(/(\d+(?:\.\d+)?)\s*(?:m|triệu|trieu)\b/i);
+    if (mMatch) {
+      price = Math.round(parseFloat(mMatch[1]) * 1000000);
+    } else {
+      const rawPriceMatch = norm.match(/\b(\d{4,})\b/);
+      if (rawPriceMatch) {
+        price = parseInt(rawPriceMatch[1]);
+      }
+    }
+  }
+  
+  let productName = norm
+    .replace(/(?:receive|add|sell|sale|produce|bottle|bottling|manufacture|packaging|convert to bottles|nhập|bán|xuất|sản xuất|đóng chai|cộng|thêm|trừ|giá|cost|price)\b/gi, "")
+    .replace(/\d+(?:\.\d+)?\s*(?:l|liter|litre|lít|ml)\b/gi, "")
+    .replace(/\d+(?:\.\d+)?\s*(?:k|ngàn|nghìn|triệu|trieu|vnd|đ|d|đồng)\b/gi, "")
+    .replace(/\b(?:bottle|bottles|chai|cái|lọ|hộp|đơn vị)\b/gi, "")
+    .replace(/\b\d+\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+    
+  return {
+    isProduction,
+    isSales,
+    isReceive,
+    volumeMl,
+    hasBottleKeyword,
+    quantity,
+    price,
+    productName
+  };
+};
+
 // Smart product matcher
 const findBestProduct = (text, products) => {
   const normText = normalize(text);
@@ -274,16 +378,28 @@ const generateResponse = (results, globalAction, additionalData = {}) => {
     }
 
     if (item.action === "IMPORT") {
-      const priceNote = item.price ? ` (giá nhập mới: ${item.price.toLocaleString("vi-VN")}đ)` : "";
+      const priceNote = item.price ? ` (giá nhập: ${item.price.toLocaleString("vi-VN")}đ)` : "";
+      if (item.isShampoo) {
+        const fmtLabel = item.format === "bulk" ? "Lít hàng xá" : `chai ${item.format}`;
+        return `📦 Nhập kho thành công: **${item.quantity}** ${fmtLabel} **${item.product}**${priceNote}`;
+      }
       return `📦 Nhập kho thành công: **${item.quantity}** x **${item.product}**${priceNote}`;
     }
 
     if (item.action === "EXPORT") {
-      const priceNote = item.price ? ` (giá bán mới: ${item.price.toLocaleString("vi-VN")}đ)` : "";
+      const priceNote = item.price ? ` (giá bán: ${item.price.toLocaleString("vi-VN")}đ)` : "";
+      if (item.isShampoo) {
+        const fmtLabel = item.format === "bulk" ? "Lít hàng xá" : `chai ${item.format}`;
+        return `🚚 Xuất kho thành công: **${item.quantity}** ${fmtLabel} **${item.product}**${priceNote}`;
+      }
       return `🚚 Xuất kho thành công: **${item.quantity}** x **${item.product}**${priceNote}`;
     }
 
     // QUERY
+    if (item.isShampoo) {
+      const totalVol = (item.bottles300 || 0) * 0.3 + (item.bottles500 || 0) * 0.5 + (item.bulkLiters || 0);
+      return `📊 **${item.product}**: tổng trữ lượng **${totalVol.toFixed(1)} L**\n- Chai 300ml: ${item.bottles300 || 0} chai\n- Chai 500ml: ${item.bottles500 || 0} chai\n- Hàng xá: ${item.bulkLiters || 0} L (${Math.round((item.bulkLiters || 0) * 1000)}ml)`;
+    }
     const status =
       item.quantity > 50
         ? "dồi dào"
@@ -305,6 +421,28 @@ const generateResponse = (results, globalAction, additionalData = {}) => {
   }
 
   return [summary, ...lines].filter(Boolean).join("\n\n");
+};
+
+const detectShampooFormat = (rawText) => {
+  const t = rawText.toLowerCase();
+  
+  // Check for bulk liters (e.g. 5 lít, 5 l, 5lit)
+  const bulkMatch = t.match(/(\d+(?:\.\d+)?)\s*(?:l|lít|lit)\b/i);
+  if (bulkMatch) {
+    return { format: "bulk", qty: parseFloat(bulkMatch[1]) };
+  }
+  
+  // Check for 300ml
+  if (t.includes("300ml") || t.includes("300 ml")) {
+    return { format: "300ml", qty: null };
+  }
+  
+  // Check for 500ml
+  if (t.includes("500ml") || t.includes("500 ml")) {
+    return { format: "500ml", qty: null };
+  }
+  
+  return { format: "300ml", qty: null };
 };
 
 // AI assistant chat entry point
@@ -331,6 +469,311 @@ const chat = async (req, res) => {
     }
   } catch (e) {
     console.error("Error loading chat history:", e);
+  }
+
+  // Intercept for special inventory rules
+  const command = parseInventoryCommand(message);
+  
+  if (command.isProduction || command.isSales || command.isReceive) {
+    const products = await prisma.product.findMany();
+    const targetName = command.productName || prevProduct || "Bồ Kết";
+    let matchedProduct = findMatch(targetName, products);
+    
+    const isRaw = (command.volumeMl !== null && !command.hasBottleKeyword);
+    const isFinished = command.hasBottleKeyword;
+    
+    if (command.isProduction) {
+      // Production Rule: produce 10 bottles bồ kết 300ml
+      let bottleSize = command.volumeMl;
+      let qty = command.quantity || 1;
+      if (!bottleSize) {
+        bottleSize = 300;
+        if (command.quantity !== null) {
+          qty = Math.max(1, Math.floor(command.quantity / 3));
+        }
+      }
+      const requiredMl = qty * bottleSize;
+      
+      const targetProduct = matchedProduct || products.find(p => p.name.includes("Bồ Kết"));
+      const fmtName = formatProductName(targetProduct ? targetProduct.name : targetName);
+      
+      const availableMl = targetProduct ? Math.round(targetProduct.bulkLiters * 1000) : 0;
+      
+      if (availableMl < requiredMl) {
+        const shortageMl = requiredMl - availableMl;
+        const reply = `❌ Không đủ nguyên liệu\n\nHiện có: ${availableMl}ml\nCần dùng: ${requiredMl}ml\nThiếu hụt: ${shortageMl}ml`;
+        
+        const resp = {
+          success: false,
+          reply,
+          data: [{ error: "Insufficient raw material", available: availableMl, required: requiredMl, shortage: shortageMl }],
+          action: "PRODUCTION"
+        };
+        
+        await prisma.chatHistory.create({
+          data: { message, response: JSON.stringify(resp) }
+        });
+        return res.json(resp);
+      }
+      
+      // Perform transaction
+      const requiredLiters = requiredMl / 1000;
+      await prisma.$transaction(async (tx) => {
+        let updateData = {
+          bulkLiters: targetProduct.bulkLiters - requiredLiters
+        };
+        
+        if (bottleSize === 300) {
+          updateData.bottles300 = targetProduct.bottles300 + qty;
+          updateData.quantity = targetProduct.quantity + qty;
+        } else if (bottleSize === 500) {
+          updateData.bottles500 = targetProduct.bottles500 + qty;
+          updateData.quantity = targetProduct.quantity + qty;
+        } else {
+          updateData.quantity = targetProduct.quantity + qty;
+        }
+        
+        await tx.product.update({
+          where: { id: targetProduct.id },
+          data: updateData
+        });
+        
+        await tx.inventoryHistory.create({
+          data: {
+            productId: targetProduct.id,
+            action: "EXPORT",
+            quantity: 0,
+            note: `Sản xuất: Chiết xuất nguyên liệu xá: -${requiredMl}ml`,
+            bulkLiters: -requiredLiters
+          }
+        });
+        
+        await tx.inventoryHistory.create({
+          data: {
+            productId: targetProduct.id,
+            action: "IMPORT",
+            quantity: qty,
+            note: `Sản xuất: Đóng chai +${qty} chai ${bottleSize}ml`,
+            bottles300: bottleSize === 300 ? qty : null,
+            bottles500: bottleSize === 500 ? qty : null
+          }
+        });
+      });
+      
+      const reply = `Kho nguyên liệu:\n${fmtName} -${requiredMl}ml\n\nKho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai`;
+      
+      const resp = {
+        success: true,
+        reply,
+        data: [{ action: "PRODUCTION", product: fmtName, quantity: qty, volume: bottleSize }],
+        action: "PRODUCTION"
+      };
+      
+      await prisma.chatHistory.create({
+        data: { message, response: JSON.stringify(resp) }
+      });
+      return res.json(resp);
+    }
+    
+    if (command.isSales) {
+      if (!matchedProduct) {
+        return res.status(404).json({ success: false, reply: `❌ Không tìm thấy sản phẩm '${targetName}' trong hệ thống.` });
+      }
+      
+      let bottleSize = command.volumeMl;
+      let qty = command.quantity || 1;
+      if (!bottleSize) {
+        bottleSize = 300;
+        if (command.quantity !== null) {
+          qty = Math.max(1, Math.floor(command.quantity / 3));
+        }
+      }
+      const fmtName = formatProductName(matchedProduct.name);
+      
+      let availableQty = 0;
+      if (bottleSize === 300) availableQty = matchedProduct.bottles300;
+      else if (bottleSize === 500) availableQty = matchedProduct.bottles500;
+      else availableQty = matchedProduct.quantity;
+      
+      if (availableQty < qty) {
+        const reply = `❌ Không đủ hàng trong kho để xuất bán. Hiện tại chỉ còn ${availableQty} chai ${bottleSize}ml.`;
+        const resp = { success: false, reply, data: [{ error: "Insufficient stock" }], action: "SALES" };
+        await prisma.chatHistory.create({ data: { message, response: JSON.stringify(resp) } });
+        return res.json(resp);
+      }
+      
+      await prisma.$transaction(async (tx) => {
+        let updateData = {};
+        if (bottleSize === 300) {
+          updateData = {
+            bottles300: matchedProduct.bottles300 - qty,
+            quantity: matchedProduct.quantity - qty
+          };
+        } else if (bottleSize === 500) {
+          updateData = {
+            bottles500: matchedProduct.bottles500 - qty,
+            quantity: matchedProduct.quantity - qty
+          };
+        } else {
+          updateData = {
+            quantity: matchedProduct.quantity - qty
+          };
+        }
+        
+        await tx.product.update({
+          where: { id: matchedProduct.id },
+          data: updateData
+        });
+        
+        await tx.inventoryHistory.create({
+          data: {
+            productId: matchedProduct.id,
+            action: "EXPORT",
+            quantity: qty,
+            sellPrice: matchedProduct.sellPrice,
+            note: `Bán hàng: -${qty} chai ${bottleSize}ml`,
+            bottles300: bottleSize === 300 ? qty : null,
+            bottles500: bottleSize === 500 ? qty : null
+          }
+        });
+      });
+      
+      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml -${qty} chai`;
+      
+      const resp = {
+        success: true,
+        reply,
+        data: [{ action: "SALES", product: fmtName, quantity: qty, volume: bottleSize }],
+        action: "SALES"
+      };
+      
+      await prisma.chatHistory.create({
+        data: { message, response: JSON.stringify(resp) }
+      });
+      return res.json(resp);
+    }
+    
+    if (command.isReceive && isRaw) {
+      const volumeMl = command.volumeMl;
+      const volumeLiters = volumeMl / 1000;
+      
+      let finalProduct = matchedProduct;
+      
+      await prisma.$transaction(async (tx) => {
+        if (!finalProduct) {
+          finalProduct = await tx.product.create({
+            data: {
+              name: formatProductName(command.productName),
+              category: "Raw Material",
+              volume: "Bulk",
+              importPrice: command.price || 0,
+              sellPrice: 0,
+              quantity: 0,
+              bulkLiters: volumeLiters
+            }
+          });
+        } else {
+          finalProduct = await tx.product.update({
+            where: { id: finalProduct.id },
+            data: {
+              bulkLiters: finalProduct.bulkLiters + volumeLiters
+            }
+          });
+        }
+        
+        await tx.inventoryHistory.create({
+          data: {
+            productId: finalProduct.id,
+            action: "IMPORT",
+            quantity: 0,
+            importPrice: command.price,
+            note: `Nhập kho nguyên liệu xá: +${volumeMl}ml`,
+            bulkLiters: volumeLiters
+          }
+        });
+      });
+      
+      const fmtName = formatProductName(finalProduct.name);
+      const reply = `Nguyên liệu: ${fmtName} +${volumeMl}ml`;
+      
+      const resp = {
+        success: true,
+        reply,
+        data: [{ action: "IMPORT_RAW", product: fmtName, volumeMl, price: command.price }],
+        action: "IMPORT"
+      };
+      
+      await prisma.chatHistory.create({
+        data: { message, response: JSON.stringify(resp) }
+      });
+      return res.json(resp);
+    }
+    
+    if (command.isReceive && isFinished) {
+      if (!matchedProduct) {
+        return res.status(404).json({ success: false, reply: `❌ Không tìm thấy sản phẩm '${targetName}' trong hệ thống để nhập kho.` });
+      }
+      
+      let bottleSize = command.volumeMl;
+      let qty = command.quantity || 1;
+      if (!bottleSize) {
+        bottleSize = 300;
+        if (command.quantity !== null) {
+          qty = Math.max(1, Math.floor(command.quantity / 3));
+        }
+      }
+      const fmtName = formatProductName(matchedProduct.name);
+      
+      await prisma.$transaction(async (tx) => {
+        let updateData = {};
+        if (bottleSize === 300) {
+          updateData = {
+            bottles300: matchedProduct.bottles300 + qty,
+            quantity: matchedProduct.quantity + qty
+          };
+        } else if (bottleSize === 500) {
+          updateData = {
+            bottles500: matchedProduct.bottles500 + qty,
+            quantity: matchedProduct.quantity + qty
+          };
+        } else {
+          updateData = {
+            quantity: matchedProduct.quantity + qty
+          };
+        }
+        
+        await tx.product.update({
+          where: { id: matchedProduct.id },
+          data: updateData
+        });
+        
+        await tx.inventoryHistory.create({
+          data: {
+            productId: matchedProduct.id,
+            action: "IMPORT",
+            quantity: qty,
+            importPrice: command.price || matchedProduct.importPrice,
+            note: `Nhập kho đóng chai: +${qty} chai ${bottleSize}ml`,
+            bottles300: bottleSize === 300 ? qty : null,
+            bottles500: bottleSize === 500 ? qty : null
+          }
+        });
+      });
+      
+      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai`;
+      
+      const resp = {
+        success: true,
+        reply,
+        data: [{ action: "IMPORT_FINISHED", product: fmtName, quantity: qty, volume: bottleSize }],
+        action: "IMPORT"
+      };
+      
+      await prisma.chatHistory.create({
+        data: { message, response: JSON.stringify(resp) }
+      });
+      return res.json(resp);
+    }
   }
 
   // 2. Parse current message
@@ -609,8 +1052,20 @@ const chat = async (req, res) => {
       continue;
     }
 
+    const isShampoo = prod.category === "Dầu gội";
+    let format = null;
+    let actualQty = qty;
+    
+    if (isShampoo) {
+      const detectRes = detectShampooFormat(p.raw);
+      format = detectRes.format;
+      if (detectRes.qty !== null) {
+        actualQty = detectRes.qty;
+      }
+    }
+
     if (p.action === "IMPORT") {
-      if (!qty) {
+      if (!actualQty) {
         results.push({
           product: prod.name,
           error: `Số lượng nhập không hợp lệ. Ví dụ: 'nhập ${prod.name} 10 cái'`,
@@ -618,28 +1073,67 @@ const chat = async (req, res) => {
         continue;
       }
 
-      const updateData = { quantity: prod.quantity + qty };
-      if (p.price) updateData.importPrice = p.price;
+      let updateData = {};
+      let price = p.price || null;
+      let bottles300Delta = 0;
+      let bottles500Delta = 0;
+      let bulkLitersDelta = 0;
+      let histQty = actualQty;
+
+      if (isShampoo && format) {
+        if (format === "300ml") {
+          bottles300Delta = actualQty;
+          updateData = {
+            bottles300: prod.bottles300 + actualQty,
+            quantity: prod.quantity + actualQty,
+          };
+          price = price || prod.importPrice300 || prod.importPrice;
+        } else if (format === "500ml") {
+          bottles500Delta = actualQty;
+          updateData = {
+            bottles500: prod.bottles500 + actualQty,
+            quantity: prod.quantity + actualQty,
+          };
+          price = price || prod.importPrice500 || prod.importPrice;
+        } else if (format === "bulk") {
+          bulkLitersDelta = actualQty;
+          updateData = {
+            bulkLiters: prod.bulkLiters + actualQty,
+          };
+          price = price || prod.importPriceBulk || prod.importPrice;
+          histQty = 0;
+        }
+      } else {
+        updateData = { quantity: prod.quantity + actualQty };
+        price = price || prod.importPrice;
+      }
 
       await prisma.product.update({
         where: { id: prod.id },
         data: updateData,
       });
 
+      const noteText = isShampoo && format
+        ? `Nhập kho dầu gội bằng AI Assistant (${format === 'bulk' ? actualQty + ' L hàng xá' : '+' + actualQty + ' chai ' + format})`
+        : `Nhập kho tự động bằng AI Assistant: +${actualQty} cái`;
+
       await prisma.inventoryHistory.create({
         data: {
           productId: prod.id,
           action: "IMPORT",
-          quantity: qty,
-          importPrice: p.price || prod.importPrice,
+          quantity: histQty,
+          importPrice: price,
           userId: req.user?.id,
-          note: `Nhập kho tự động bằng AI Assistant: +${qty} cái`,
+          note: noteText,
+          bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+          bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+          bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
         },
       });
 
-      results.push({ product: prod.name, quantity: qty, action: "IMPORT", price: p.price });
+      results.push({ product: prod.name, quantity: actualQty, action: "IMPORT", price: price, isShampoo, format });
     } else if (p.action === "EXPORT") {
-      if (!qty) {
+      if (!actualQty) {
         results.push({
           product: prod.name,
           error: `Số lượng xuất không hợp lệ. Ví dụ: 'xuất ${prod.name} 5 cái'`,
@@ -647,40 +1141,94 @@ const chat = async (req, res) => {
         continue;
       }
 
-      if (prod.quantity < qty) {
-        results.push({
-          product: prod.name,
-          quantity: qty,
-          error: `Không đủ hàng xuất kho. Hiện tại chỉ còn ${prod.quantity} cái trong kho.`,
-        });
-        continue;
-      }
+      let updateData = {};
+      let price = p.price || null;
+      let bottles300Delta = 0;
+      let bottles500Delta = 0;
+      let bulkLitersDelta = 0;
+      let histQty = actualQty;
 
-      const updateData = { quantity: prod.quantity - qty };
-      if (p.price) updateData.sellPrice = p.price;
+      if (isShampoo && format) {
+        if (format === "300ml") {
+          if (prod.bottles300 < actualQty) {
+            results.push({ product: prod.name, error: `Không đủ hàng xuất kho. Hiện tại chỉ còn ${prod.bottles300} chai 300ml.` });
+            continue;
+          }
+          bottles300Delta = actualQty;
+          updateData = {
+            bottles300: prod.bottles300 - actualQty,
+            quantity: prod.quantity - actualQty,
+          };
+          price = price || prod.sellPrice300 || prod.sellPrice;
+        } else if (format === "500ml") {
+          if (prod.bottles500 < actualQty) {
+            results.push({ product: prod.name, error: `Không đủ hàng xuất kho. Hiện tại chỉ còn ${prod.bottles500} chai 500ml.` });
+            continue;
+          }
+          bottles500Delta = actualQty;
+          updateData = {
+            bottles500: prod.bottles500 - actualQty,
+            quantity: prod.quantity - actualQty,
+          };
+          price = price || prod.sellPrice500 || prod.sellPrice;
+        } else if (format === "bulk") {
+          if (prod.bulkLiters < actualQty) {
+            results.push({ product: prod.name, error: `Không đủ hàng xuất kho. Hiện tại chỉ còn ${prod.bulkLiters} L hàng xá.` });
+            continue;
+          }
+          bulkLitersDelta = actualQty;
+          updateData = {
+            bulkLiters: prod.bulkLiters - actualQty,
+          };
+          price = price || prod.sellPriceBulk || prod.sellPrice;
+          histQty = 0;
+        }
+      } else {
+        if (prod.quantity < actualQty) {
+          results.push({
+            product: prod.name,
+            quantity: actualQty,
+            error: `Không đủ hàng xuất kho. Hiện tại chỉ còn ${prod.quantity} cái trong kho.`,
+          });
+          continue;
+        }
+        updateData = { quantity: prod.quantity - actualQty };
+        price = price || prod.sellPrice;
+      }
 
       await prisma.product.update({
         where: { id: prod.id },
         data: updateData,
       });
 
+      const noteText = isShampoo && format
+        ? `Xuất kho dầu gội bằng AI Assistant (${format === 'bulk' ? actualQty + ' L hàng xá' : '-' + actualQty + ' chai ' + format})`
+        : `Xuất kho tự động bằng AI Assistant: -${actualQty} cái`;
+
       await prisma.inventoryHistory.create({
         data: {
           productId: prod.id,
           action: "EXPORT",
-          quantity: qty,
-          sellPrice: p.price || prod.sellPrice,
+          quantity: histQty,
+          sellPrice: price,
           userId: req.user?.id,
-          note: `Xuất kho tự động bằng AI Assistant: -${qty} cái`,
+          note: noteText,
+          bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+          bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+          bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
         },
       });
 
-      results.push({ product: prod.name, quantity: qty, action: "EXPORT", price: p.price });
+      results.push({ product: prod.name, quantity: actualQty, action: "EXPORT", price: price, isShampoo, format });
     } else {
       // QUERY Action
       results.push({
         product: prod.name,
         quantity: prod.quantity,
+        bottles300: prod.bottles300,
+        bottles500: prod.bottles500,
+        bulkLiters: prod.bulkLiters,
+        isShampoo,
         importPrice: prod.importPrice,
         sellPrice: prod.sellPrice,
         action: "QUERY",

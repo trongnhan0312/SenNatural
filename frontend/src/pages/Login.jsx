@@ -1,6 +1,6 @@
 import React from "react";
 import axios from "axios";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Lock, User } from "lucide-react";
 
 export default function Login() {
@@ -8,6 +8,17 @@ export default function Login() {
   const [password, setPassword] = React.useState("");
   const [err, setErr] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+
+  // Background slides
+  const bgSlides = ["/boket.jpg", "/gung.jpg"];
+  const [bgSlideIndex, setBgSlideIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setBgSlideIndex((prev) => (prev + 1) % bgSlides.length);
+    }, 5500);
+    return () => clearInterval(timer);
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -29,106 +40,125 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-[32px] border border-slate-200 bg-white/90 shadow-soft backdrop-blur-xl">
-        <div className="grid gap-0 md:grid-cols-[1.6fr_1fr]">
+    <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-sans select-none">
+      
+      {/* Fullscreen Cinematic Slide Background */}
+      <div className="absolute inset-0 z-0 overflow-hidden">
+        <AnimatePresence mode="wait">
           <motion.div
-            initial={{ opacity: 0, x: -60 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className="relative bg-[url('https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&w=900&q=80')] bg-cover bg-center p-10 text-white md:p-12"
+            key={bgSlideIndex}
+            initial={{ x: "100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 0.9 }}
+            exit={{ x: "-100%", opacity: 0 }}
+            transition={{ duration: 1.6, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute inset-0 w-full h-full"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/90 via-slate-900/40 to-slate-900/70" />
-            <div className="relative z-10 flex h-full flex-col justify-between">
-              <div>
-                <div className="mb-4 flex items-center gap-2.5 select-none">
-                  <img
-                    src="/logo.jpg"
-                    alt="Logo"
-                    className="h-10 w-10 rounded-xl object-cover border border-white/20 bg-white"
-                  />
-                  <span className="text-xl font-extrabold text-white tracking-wide font-sans">Sen Natural</span>
-                </div>
-                <div className="mb-6 inline-flex rounded-3xl bg-white/10 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-100">
-                  Sen Natural Admin
-                </div>
-                <h1 className="text-4xl font-semibold tracking-tight">Chào mừng trở lại</h1>
-                <p className="mt-4 max-w-sm text-sm leading-7 text-slate-200">
-                  Quản lý kho hàng, sản phẩm và đơn hàng của Sen Natural với giao diện hiện đại.
-                </p>
-              </div>
-              <div className="space-y-4 text-sm text-slate-200">
-                <div className="rounded-3xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-                  <div className="font-semibold">Bảng điều khiển</div>
-                  <div className="mt-2 text-xs text-slate-300">Xem nhanh tổng quan sản phẩm, nhập kho và trạng thái AI.</div>
-                </div>
-                <div className="rounded-3xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-                  <div className="font-semibold">Trợ lý AI</div>
-                  <div className="mt-2 text-xs text-slate-300">Điều khiển bằng tiếng Việt để tự động hóa thao tác kho.</div>
-                </div>
-              </div>
-            </div>
+            {/* Blurred background image to fill screen without gaps */}
+            <img
+              src={bgSlides[bgSlideIndex]}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover filter blur-xl opacity-[0.25]"
+            />
+            {/* Sharp centered product image displayed fully */}
+            <img
+              src={bgSlides[bgSlideIndex]}
+              alt="Product Background"
+              className="absolute inset-0 w-full h-full object-contain p-6 sm:p-12 filter brightness-[0.9] saturate-[0.95]"
+            />
           </motion.div>
+        </AnimatePresence>
+        
+        {/* Soft overlay to dim slightly and tint green without blurring the sharp image */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/50 z-10 pointer-events-none" />
+        <div className="absolute inset-0 bg-[#0f5132]/18 mix-blend-overlay z-10 pointer-events-none" />
+      </div>
 
-          <motion.div
-            initial={{ opacity: 0, x: 60 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut", delay: 0.1 }}
-            className="px-6 py-8 md:px-10 md:py-12"
-          >
-            <div className="mb-8 flex items-center gap-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm">
-              <img
-                src="/logo.jpg"
-                alt="Sen Natural Logo"
-                className="h-12 w-12 rounded-[18px] object-cover border border-slate-200 bg-white shadow-sm shrink-0"
-              />
-              <div>
-                <p className="text-sm font-medium text-slate-600">Đăng nhập vào hệ thống</p>
-                <p className="text-xs text-slate-400">Nhập thông tin tài khoản để tiếp tục.</p>
-              </div>
-            </div>
+      {/* Centered Login Form Card */}
+      <div className="relative z-20 flex items-center justify-center w-full min-h-screen p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 40, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-md bg-slate-950/80 border border-white/10 shadow-2xl backdrop-blur-xl rounded-[36px] p-8 text-white relative"
+        >
+          {/* Logo & Branding */}
+          <div className="mb-8 flex flex-col items-center text-center select-none">
+            <img
+              src="/logo.jpg"
+              alt="Logo"
+              className="h-16 w-16 rounded-[22px] object-cover border border-white/30 shadow-md bg-white mb-3"
+            />
+            <span className="text-2xl font-black text-white tracking-wide">Sen Natural</span>
+            <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Admin Portal</span>
+          </div>
 
-            {err && (
-              <div className="mb-6 rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {err}
-              </div>
-            )}
+          <div className="mb-6 text-center">
+            <h2 className="text-xl font-bold text-white tracking-tight">Đăng Nhập</h2>
+            <p className="text-xs text-slate-300 font-medium mt-1">Nhập tài khoản để tiếp tục vào hệ thống quản trị.</p>
+          </div>
 
-            <form onSubmit={submit} className="space-y-4">
-              <label className="block text-sm font-semibold text-slate-700">Tên đăng nhập</label>
+          {err && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 rounded-2xl border border-red-500/30 bg-red-950/45 p-4 text-xs font-semibold text-red-300 backdrop-blur-sm"
+            >
+              {err}
+            </motion.div>
+          )}
+
+          <form onSubmit={submit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="block text-xs font-extrabold uppercase text-slate-300 tracking-wider">Tên đăng nhập</label>
               <div className="relative">
-                <User size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <User size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-2xl border border-white/20 bg-white/10 py-3 pl-12 pr-4 text-sm text-white placeholder-slate-400 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 backdrop-blur-sm"
                   placeholder="senadmin"
+                  required
                 />
               </div>
+            </div>
 
-              <label className="block text-sm font-semibold text-slate-700">Mật khẩu</label>
+            <div className="space-y-2">
+              <label className="block text-xs font-extrabold uppercase text-slate-300 tracking-wider">Mật khẩu</label>
               <div className="relative">
-                <Lock size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Lock size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-2xl border border-white/20 bg-white/10 py-3 pl-12 pr-4 text-sm text-white placeholder-slate-400 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 backdrop-blur-sm"
                   placeholder="••••••••"
+                  required
                 />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-3xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Đang đăng nhập..." : "Đăng nhập"}
-              </button>
-            </form>
-          </motion.div>
-        </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-emerald-600 text-white py-3 text-sm font-extrabold uppercase tracking-wider transition-all hover:bg-emerald-500 shadow-md hover:shadow-lg hover:shadow-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span>Đang kết nối...</span>
+                </div>
+              ) : (
+                "Đăng nhập"
+              )}
+            </button>
+          </form>
+
+          {/* Footer inside login card */}
+          <div className="mt-8 pt-6 border-t border-white/10 text-center">
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Sen Natural © 2026</span>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
