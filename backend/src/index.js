@@ -1,6 +1,16 @@
 const path = require("path");
 const dotenv = require("dotenv");
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+const fs = require("fs");
+
+const envPath = path.resolve(__dirname, "../.env");
+const envExamplePath = path.resolve(__dirname, "../.env.example");
+
+if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
+  fs.copyFileSync(envExamplePath, envPath);
+  console.log("Auto-created .env file from .env.example");
+}
+
+dotenv.config({ path: envPath });
 
 const express = require("express");
 const cors = require("cors");
