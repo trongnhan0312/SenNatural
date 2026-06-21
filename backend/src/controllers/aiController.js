@@ -1,5 +1,6 @@
 const prisma = require("../prismaClient");
 const dayjs = require("dayjs");
+const { fetchSPXTracking } = require("./waybillController");
 
 // Normalize Vietnamese string: remove diacritics, lowercase, clean spaces
 const normalize = (s = "") =>
@@ -446,31 +447,371 @@ const detectShampooFormat = (rawText) => {
 };
 
 // AI assistant chat entry point
-const chat = async (req, res) => {
-  const { message } = req.body;
-  if (!message || !message.trim()) {
-    return res.status(400).json({ success: false, reply: "Vui lòng nhập tin nhắn." });
-  }
+// Execute actions parsed from LLM
+const executeActions = async (actions, reqUser) => {
+  const results = [];
+  
+  for (const act of actions) {
+    try {
+      const prodId = act.productId;
 
-  // 1. Fetch previous product context from ChatHistory
-  let prevProduct = null;
-  try {
-    const lastChat = await prisma.chatHistory.findFirst({
-      orderBy: { id: "desc" },
-    });
-    if (lastChat) {
-      const lastResp = JSON.parse(lastChat.response);
-      if (lastResp.data && lastResp.data.length > 0) {
-        const lastSuccess = lastResp.data.find((r) => !r.error);
-        if (lastSuccess && lastSuccess.product) {
-          prevProduct = lastSuccess.product;
+      if (act.type === "TRACK_WAYBILL") {
+        if (!act.trackingNumber) {
+          results.push({ error: "Thiếu mã vận đơn cần tra cứu." });
+          continue;
         }
-      }
-    }
-  } catch (e) {
-    console.error("Error loading chat history:", e);
-  }
+        const trackingData = await fetchSPXTracking(act.trackingNumber);
+        const waybill = await prisma.waybill.upsert({
+          where: { trackingNumber: act.trackingNumber },
+          update: {
+            carrier: act.carrier || trackingData.carrier || "SPX Express",
+            status: trackingData.status,
+            shipperName: trackingData.shipperName || null,
+            shipperPhone: trackingData.shipperPhone || null,
+            shippingAddress: trackingData.shippingAddress || null,
+            weight: trackingData.weight || null,
+            history: JSON.stringify(trackingData.history)
+          },
+          create: {
+            trackingNumber: act.trackingNumber,
+            carrier: act.carrier || trackingData.carrier || "SPX Express",
+            status: trackingData.status,
+            shipperName: trackingData.shipperName || null,
+            shipperPhone: trackingData.shipperPhone || null,
+            shippingAddress: trackingData.shippingAddress || null,
+            weight: trackingData.weight || null,
+            history: JSON.stringify(trackingData.history)
+          }
+        });
+        
+        let latestEvent = "";
+        try {
+          const events = trackingData.history || [];
+          if (events.length > 0) {
+            const lastEvt = events[events.length - 1];
+            latestEvent = `${lastEvt.message} (${dayjs(lastEvt.time).format("HH:mm DD/MM/YYYY")})`;
+          }
+        } catch (e) {}
 
+        results.push({
+          action: "TRACK_WAYBILL",
+          trackingNumber: act.trackingNumber,
+          carrier: waybill.carrier,
+          status: waybill.status,
+          shipperName: waybill.shipperName,
+          shippingAddress: waybill.shippingAddress,
+          latestEvent: latestEvent,
+          success: true
+        });
+        continue;
+      }
+      
+      if (act.type === "CREATE_PRODUCT") {
+        if (!act.productName) {
+          results.push({ error: "Thiếu tên sản phẩm mới." });
+          continue;
+        }
+        const volumeVal = act.volume || "300ml";
+        const importPriceVal = act.price || 30000;
+        const sellPriceVal = act.price ? act.price * 2 : 60000;
+        
+        // Infer category from name if not specified
+        let category = act.category;
+        if (!category) {
+          const normName = normalize(act.productName);
+          if (normName.includes("dau goi") || normName.includes("dầu gội")) category = "Dầu gội";
+          else if (normName.includes("xa") || normName.includes("xả")) category = "Dầu xả";
+          else if (normName.includes("tam") || normName.includes("tắm")) category = "Sữa tắm";
+          else category = "Chăm sóc";
+        }
+        
+        const newProd = await prisma.product.create({
+          data: {
+            name: act.productName,
+            volume: volumeVal,
+            category: category,
+            importPrice: importPriceVal,
+            sellPrice: sellPriceVal,
+            quantity: act.quantity || 0,
+          }
+        });
+        results.push({
+          action: "CREATE_PRODUCT",
+          product: newProd.name,
+          volume: newProd.volume,
+          importPrice: newProd.importPrice,
+          sellPrice: newProd.sellPrice,
+          success: true
+        });
+        continue;
+      }
+      
+      // For other actions, we need an existing product
+      if (!prodId) {
+        results.push({ error: `Không xác định được sản phẩm cho hành động ${act.type}` });
+        continue;
+      }
+      
+      const prod = await prisma.product.findUnique({ where: { id: prodId } });
+      if (!prod) {
+        results.push({ error: `Không tìm thấy sản phẩm có ID ${prodId} trong cơ sở dữ liệu.` });
+        continue;
+      }
+      
+      const isShampoo = prod.category === "Dầu gội";
+      
+      if (act.type === "DELETE_PRODUCT") {
+        await prisma.product.delete({ where: { id: prod.id } });
+        results.push({
+          action: "DELETE_PRODUCT",
+          product: prod.name,
+          success: true
+        });
+        continue;
+      }
+      
+      if (act.type === "PRICE_UPDATE") {
+        if (!act.price) {
+          results.push({ error: `Thiếu giá cập nhật cho sản phẩm ${prod.name}` });
+          continue;
+        }
+        const priceField = act.priceField === "importPrice" ? "importPrice" : "sellPrice";
+        await prisma.product.update({
+          where: { id: prod.id },
+          data: { [priceField]: act.price }
+        });
+        results.push({
+          action: "PRICE_UPDATE",
+          product: prod.name,
+          price: act.price,
+          priceField,
+          success: true
+        });
+        continue;
+      }
+      
+      if (act.type === "IMPORT") {
+        const qty = act.quantity || 0;
+        let updateData = {};
+        let price = act.price || prod.importPrice;
+        let bottles300Delta = 0;
+        let bottles500Delta = 0;
+        let bulkLitersDelta = 0;
+        let histQty = qty;
+        
+        if (isShampoo && act.format) {
+          if (act.format === "300ml") {
+            bottles300Delta = qty;
+            updateData = {
+              bottles300: prod.bottles300 + qty,
+              quantity: prod.quantity + qty
+            };
+          } else if (act.format === "500ml") {
+            bottles500Delta = qty;
+            updateData = {
+              bottles500: prod.bottles500 + qty,
+              quantity: prod.quantity + qty
+            };
+          } else if (act.format === "bulk") {
+            bulkLitersDelta = qty;
+            updateData = {
+              bulkLiters: prod.bulkLiters + qty
+            };
+            histQty = 0;
+          }
+        } else {
+          updateData = { quantity: prod.quantity + qty };
+        }
+        
+        await prisma.product.update({
+          where: { id: prod.id },
+          data: updateData
+        });
+        
+        const noteText = act.note || (isShampoo && act.format
+          ? `Nhập kho dầu gội bằng Trợ lý AI (${act.format === 'bulk' ? bulkLitersDelta + ' L hàng xá' : '+' + qty + ' chai ' + act.format})`
+          : `Nhập kho tự động bằng Trợ lý AI: +${act.quantity || qty} cái`);
+          
+        await prisma.inventoryHistory.create({
+          data: {
+            productId: prod.id,
+            action: "IMPORT",
+            quantity: histQty,
+            importPrice: price,
+            userId: reqUser?.id,
+            note: noteText,
+            bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+            bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+            bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
+          }
+        });
+        
+        results.push({
+          action: "IMPORT",
+          product: prod.name,
+          quantity: qty,
+          format: act.format,
+          success: true
+        });
+        continue;
+      }
+      
+      if (act.type === "EXPORT") {
+        const qty = act.quantity || 0;
+        let updateData = {};
+        let price = act.price || prod.sellPrice;
+        let bottles300Delta = 0;
+        let bottles500Delta = 0;
+        let bulkLitersDelta = 0;
+        let histQty = qty;
+        
+        if (isShampoo && act.format) {
+          if (act.format === "300ml") {
+            if (prod.bottles300 < qty) {
+              results.push({ error: `Không đủ hàng xuất kho. Chỉ còn ${prod.bottles300} chai 300ml.` });
+              continue;
+            }
+            bottles300Delta = qty;
+            updateData = {
+              bottles300: prod.bottles300 - qty,
+              quantity: prod.quantity - qty
+            };
+          } else if (act.format === "500ml") {
+            if (prod.bottles500 < qty) {
+              results.push({ error: `Không đủ hàng xuất kho. Chỉ còn ${prod.bottles500} chai 500ml.` });
+              continue;
+            }
+            bottles500Delta = qty;
+            updateData = {
+              bottles500: prod.bottles500 - qty,
+              quantity: prod.quantity - qty
+            };
+          } else if (act.format === "bulk") {
+            if (prod.bulkLiters < qty) {
+              results.push({ error: `Không đủ hàng xuất kho. Chỉ còn ${prod.bulkLiters} Lít hàng xá.` });
+              continue;
+            }
+            bulkLitersDelta = qty;
+            updateData = {
+              bulkLiters: prod.bulkLiters - qty
+            };
+            histQty = 0;
+          }
+        } else {
+          if (prod.quantity < qty) {
+            results.push({ error: `Không đủ hàng xuất kho. Chỉ còn ${prod.quantity} cái trong kho.` });
+            continue;
+          }
+          updateData = { quantity: prod.quantity - qty };
+        }
+        
+        await prisma.product.update({
+          where: { id: prod.id },
+          data: updateData
+        });
+        
+        const noteText = act.note || (isShampoo && act.format
+          ? `Xuất kho dầu gội bằng Trợ lý AI (${act.format === 'bulk' ? bulkLitersDelta + ' L hàng xá' : '-' + qty + ' chai ' + act.format})`
+          : `Xuất kho tự động bằng Trợ lý AI: -${act.quantity || qty} cái`);
+          
+        await prisma.inventoryHistory.create({
+          data: {
+            productId: prod.id,
+            action: "EXPORT",
+            quantity: histQty,
+            sellPrice: price,
+            userId: reqUser?.id,
+            note: noteText,
+            bottles300: bottles300Delta > 0 ? bottles300Delta : null,
+            bottles500: bottles500Delta > 0 ? bottles500Delta : null,
+            bulkLiters: bulkLitersDelta > 0 ? bulkLitersDelta : null,
+          }
+        });
+        
+        results.push({
+          action: "EXPORT",
+          product: prod.name,
+          quantity: qty,
+          format: act.format,
+          success: true
+        });
+        continue;
+      }
+      
+      if (act.type === "PRODUCTION") {
+        const qty = act.quantity || 1;
+        const bottleSize = act.format === "500ml" ? 500 : 300;
+        const requiredMl = qty * bottleSize;
+        const requiredLiters = requiredMl / 1000;
+        
+        if (prod.bulkLiters < requiredLiters) {
+          results.push({
+            error: `Không đủ nguyên liệu xá cho ${prod.name}. Hiện có: ${prod.bulkLiters}L. Cần dùng: ${requiredLiters}L.`
+          });
+          continue;
+        }
+        
+        let updateData = {
+          bulkLiters: prod.bulkLiters - requiredLiters
+        };
+        
+        if (bottleSize === 300) {
+          updateData.bottles300 = prod.bottles300 + qty;
+          updateData.quantity = prod.quantity + qty;
+        } else {
+          updateData.bottles500 = prod.bottles500 + qty;
+          updateData.quantity = prod.quantity + qty;
+        }
+        
+        await prisma.product.update({
+          where: { id: prod.id },
+          data: updateData
+        });
+        
+        await prisma.inventoryHistory.create({
+          data: {
+            productId: prod.id,
+            action: "EXPORT",
+            quantity: 0,
+            note: `Sản xuất (Trợ lý AI): Chiết xuất nguyên liệu xá: -${requiredMl}ml`,
+            bulkLiters: -requiredLiters,
+            userId: reqUser?.id
+          }
+        });
+        
+        await prisma.inventoryHistory.create({
+          data: {
+            productId: prod.id,
+            action: "IMPORT",
+            quantity: qty,
+            note: `Sản xuất (Trợ lý AI): Đóng chai +${qty} chai ${bottleSize}ml`,
+            bottles300: bottleSize === 300 ? qty : null,
+            bottles500: bottleSize === 500 ? qty : null,
+            userId: reqUser?.id
+          }
+        });
+        
+        results.push({
+          action: "PRODUCTION",
+          product: prod.name,
+          quantity: qty,
+          format: bottleSize + "ml",
+          success: true
+        });
+        continue;
+      }
+      
+    } catch (err) {
+      console.error("Action execution error:", err);
+      results.push({ error: `Lỗi hệ thống khi thực hiện hành động ${act.type}: ${err.message}` });
+    }
+  }
+  
+  return results;
+};
+
+// Fallback to rules-based chatbot if Gemini is not set or fails
+const fallbackRulesChat = async (req, res, message, prevProduct) => {
   // Intercept for special inventory rules
   const command = parseInventoryCommand(message);
   
@@ -483,7 +824,6 @@ const chat = async (req, res) => {
     const isFinished = command.hasBottleKeyword;
     
     if (command.isProduction) {
-      // Production Rule: produce 10 bottles bồ kết 300ml
       let bottleSize = command.volumeMl;
       let qty = command.quantity || 1;
       if (!bottleSize) {
@@ -501,7 +841,8 @@ const chat = async (req, res) => {
       
       if (availableMl < requiredMl) {
         const shortageMl = requiredMl - availableMl;
-        const reply = `❌ Không đủ nguyên liệu\n\nHiện có: ${availableMl}ml\nCần dùng: ${requiredMl}ml\nThiếu hụt: ${shortageMl}ml`;
+        const reply = `❌ Không đủ nguyên liệu\n\nHiện có: ${availableMl}ml\nCần dùng: ${requiredMl}ml\nThiếu hụt: ${shortageMl}ml` +
+          "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
         
         const resp = {
           success: false,
@@ -516,7 +857,6 @@ const chat = async (req, res) => {
         return res.json(resp);
       }
       
-      // Perform transaction
       const requiredLiters = requiredMl / 1000;
       await prisma.$transaction(async (tx) => {
         let updateData = {
@@ -560,7 +900,8 @@ const chat = async (req, res) => {
         });
       });
       
-      const reply = `Kho nguyên liệu:\n${fmtName} -${requiredMl}ml\n\nKho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai`;
+      const reply = `Kho nguyên liệu:\n${fmtName} -${requiredMl}ml\n\nKho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai` +
+        "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
       
       const resp = {
         success: true,
@@ -596,7 +937,8 @@ const chat = async (req, res) => {
       else availableQty = matchedProduct.quantity;
       
       if (availableQty < qty) {
-        const reply = `❌ Không đủ hàng trong kho để xuất bán. Hiện tại chỉ còn ${availableQty} chai ${bottleSize}ml.`;
+        const reply = `❌ Không đủ hàng trong kho để xuất bán. Hiện tại chỉ còn ${availableQty} chai ${bottleSize}ml.` +
+          "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
         const resp = { success: false, reply, data: [{ error: "Insufficient stock" }], action: "SALES" };
         await prisma.chatHistory.create({ data: { message, response: JSON.stringify(resp) } });
         return res.json(resp);
@@ -638,7 +980,8 @@ const chat = async (req, res) => {
         });
       });
       
-      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml -${qty} chai`;
+      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml -${qty} chai` +
+        "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
       
       const resp = {
         success: true,
@@ -694,7 +1037,8 @@ const chat = async (req, res) => {
       });
       
       const fmtName = formatProductName(finalProduct.name);
-      const reply = `Nguyên liệu: ${fmtName} +${volumeMl}ml`;
+      const reply = `Nguyên liệu: ${fmtName} +${volumeMl}ml` +
+        "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
       
       const resp = {
         success: true,
@@ -760,7 +1104,8 @@ const chat = async (req, res) => {
         });
       });
       
-      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai`;
+      const reply = `Kho thành phẩm:\n${fmtName} ${bottleSize}ml +${qty} chai` +
+        "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
       
       const resp = {
         success: true,
@@ -832,11 +1177,12 @@ const chat = async (req, res) => {
       `- 📈 **Lợi nhuận dự tính:** \`${monthlyProfit.toLocaleString("vi-VN")}đ\`\n\n` +
       `📥 **Tải báo cáo chi tiết:**\n` +
       `- 📄 [Tải báo cáo Excel](/api/export/excel)\n` +
-      `- 📕 [Tải báo cáo PDF](/api/export/pdf)`;
+      `- 📕 [Tải báo cáo PDF](/api/export/pdf)` +
+      "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
 
     const resp = {
       success: true,
-      reply: reply.replace(/\*\*/g, ""),
+      reply: reply,
       data: [{ action: "REPORT", summary: "Generated monthly stats report" }],
       action: "REPORT",
     };
@@ -871,10 +1217,11 @@ const chat = async (req, res) => {
       reply += `\n💰 **Tổng ngân sách restock dự kiến:** \`${totalRestockCost.toLocaleString("vi-VN")}đ\`\n\n` +
         `💡 *Lưu ý:* Dự báo nhu cầu bán lẻ dầu gội và sản phẩm chăm sóc tóc sẽ tăng khoảng 15% vào cuối tuần, khuyến nghị thực hiện các lệnh nhập hàng sớm để tránh đứt gãy nguồn cung.`;
     }
+    reply += "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
 
     const resp = {
       success: true,
-      reply: reply.replace(/\*\*/g, ""),
+      reply: reply,
       data: lowStockProducts.map(p => ({ product: p.name, quantity: p.quantity, action: "PREDICT" })),
       action: "PREDICT",
     };
@@ -896,14 +1243,12 @@ const chat = async (req, res) => {
       const queryVolumeMl = volMatch ? parseInt(volMatch[1]) : 0;
       
       if (queryVolumeMl > 0) {
-        // Find candidate products matching name
         const candidates = products.filter(dbP => {
           const nameMatch = normalize(dbP.name).includes(normalize(p.name)) || normalize(p.name).includes(normalize(dbP.name));
           return nameMatch;
         });
 
         if (candidates.length > 0) {
-          // 1. Check if there's an exact volume match
           const exactMatch = candidates.find(dbP => {
             const dbVolMatch = (dbP.volume || "").match(/(\d+)\s*ml/i);
             const dbVol = dbVolMatch ? parseInt(dbVolMatch[1]) : 0;
@@ -914,7 +1259,6 @@ const chat = async (req, res) => {
             prod = exactMatch;
             if (qty === null) qty = 1;
           } else {
-            // 2. Unit conversion: e.g. "2 lít" (2000ml) to 4 bottles of 500ml
             let largestDbProduct = candidates[0];
             let largestDbVol = 0;
             
@@ -939,7 +1283,6 @@ const chat = async (req, res) => {
       }
     }
 
-    // Fallback to normal product matching
     if (!prod) {
       prod = findBestProduct(p.name, products);
       if (prod && qty === null) {
@@ -947,7 +1290,6 @@ const chat = async (req, res) => {
       }
     }
 
-    // CREATE PRODUCT
     if (p.action === "CREATE_PRODUCT") {
       if (!p.name) {
         results.push({ product: "Sản phẩm mới", error: "Vui lòng nhập tên sản phẩm mới." });
@@ -961,10 +1303,9 @@ const chat = async (req, res) => {
         continue;
       }
 
-      const importPriceVal = p.price || 30000; // default prices if not provided
+      const importPriceVal = p.price || 30000;
       const sellPriceVal = p.price ? p.price * 2 : 60000;
       
-      // Infer category from name
       let inferredCategory = "Chăm sóc";
       if (normalize(p.name).includes("dau goi")) inferredCategory = "Dầu gội";
       else if (normalize(p.name).includes("xa")) inferredCategory = "Dầu xả";
@@ -991,7 +1332,6 @@ const chat = async (req, res) => {
       continue;
     }
 
-    // DELETE PRODUCT
     if (p.action === "DELETE_PRODUCT") {
       if (!prod) {
         results.push({ product: p.name || "sản phẩm", error: "Không tìm thấy sản phẩm này trong hệ thống để xóa." });
@@ -1009,7 +1349,6 @@ const chat = async (req, res) => {
       continue;
     }
 
-    // PRICE_UPDATE
     if (p.action === "PRICE_UPDATE") {
       if (!prod) {
         results.push({
@@ -1026,7 +1365,6 @@ const chat = async (req, res) => {
         continue;
       }
 
-      // Check if updating import or sell price
       const priceField = /nhap|nhập/.test(normalize(p.raw)) ? "importPrice" : "sellPrice";
       
       await prisma.product.update({
@@ -1043,7 +1381,6 @@ const chat = async (req, res) => {
       continue;
     }
 
-    // IMPORT / EXPORT / QUERY
     if (!prod) {
       results.push({
         product: p.name || "sản phẩm",
@@ -1221,7 +1558,6 @@ const chat = async (req, res) => {
 
       results.push({ product: prod.name, quantity: actualQty, action: "EXPORT", price: price, isShampoo, format });
     } else {
-      // QUERY Action
       results.push({
         product: prod.name,
         quantity: prod.quantity,
@@ -1236,11 +1572,12 @@ const chat = async (req, res) => {
     }
   }
 
-  const reply = generateResponse(results, globalAction);
+  const reply = generateResponse(results, globalAction) +
+    "\n\n💡 *Tip: Hãy cấu hình GEMINI_API_KEY trong file .env để trợ lý tự động xử lý kho hàng thông minh hơn.*";
 
   const resp = {
     success: results.some((r) => !r.error),
-    reply: reply.replace(/\*\*/g, ""),
+    reply: reply,
     data: results,
     action: globalAction,
   };
@@ -1252,6 +1589,313 @@ const chat = async (req, res) => {
   res.json(resp);
 };
 
+// Main chat function
+const chat = async (req, res) => {
+  const { message, file } = req.body;
+  if ((!message || !message.trim()) && !file) {
+    return res.status(400).json({ success: false, reply: "Vui lòng nhập tin nhắn hoặc tải lên tệp tin." });
+  }
+
+  // Fetch previous product context from ChatHistory
+  let prevProduct = null;
+  try {
+    const lastChat = await prisma.chatHistory.findFirst({
+      orderBy: { id: "desc" },
+    });
+    if (lastChat) {
+      const lastResp = JSON.parse(lastChat.response);
+      if (lastResp.data && lastResp.data.length > 0) {
+        const lastSuccess = lastResp.data.find((r) => !r.error);
+        if (lastSuccess && lastSuccess.product) {
+          prevProduct = lastSuccess.product;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Error loading chat history:", e);
+  }
+
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (geminiApiKey) {
+    try {
+      const products = await prisma.product.findMany();
+      const totalInventory = products.reduce((sum, p) => sum + p.quantity, 0);
+      const lowStockProducts = products.filter(p => p.quantity <= 10);
+      
+      const startOfMonth = dayjs().startOf("month").toDate();
+      const endOfMonth = dayjs().endOf("month").toDate();
+      
+      const histories = await prisma.inventoryHistory.findMany({
+        where: {
+          action: "EXPORT",
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+        include: { product: true },
+      });
+      
+      const monthlyRev = histories.reduce((sum, h) => {
+        const price = h.sellPrice || h.product.sellPrice || 0;
+        return sum + price * h.quantity;
+      }, 0);
+
+      const monthlyCost = histories.reduce((sum, h) => {
+        const price = h.importPrice || h.product.importPrice || 0;
+        return sum + price * h.quantity;
+      }, 0);
+      
+      const monthlyProfit = monthlyRev - monthlyCost;
+
+      // Load last 6 messages (3 turns) for context
+      const lastChats = await prisma.chatHistory.findMany({
+        orderBy: { id: "desc" },
+        take: 6
+      });
+      
+      const chatContext = lastChats.reverse().map(h => {
+        let reply = "";
+        try {
+          const respObj = JSON.parse(h.response);
+          reply = respObj.reply || h.response;
+        } catch (e) {
+          reply = h.response;
+        }
+        return { user: h.message, assistant: reply };
+      });
+
+      const { GoogleGenerativeAI } = require("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(geminiApiKey);
+
+      const systemInstruction = `
+Bạn là Trợ lý AI Quản lý Kho hàng thông minh của Sen Natural (hệ thống chuyên cung cấp sản phẩm thảo mộc tự nhiên như dầu gội bồ kết, dầu gội bưởi, chất chiết, v.v.).
+Nhiệm vụ của bạn là:
+1. Hỗ trợ người dùng quản lý kho hàng: nhập kho, xuất bán, sản xuất đóng chai từ nguyên liệu xá (bulk), cập nhật giá nhập/bán, thêm sản phẩm mới hoặc xóa sản phẩm.
+2. Trả lời các câu hỏi về thông tin tồn kho, báo cáo doanh thu, phân tích sản phẩm, cảnh báo hàng sắp hết và tư vấn/dự báo nhập kho dựa trên dữ liệu thực tế được cung cấp.
+3. Luôn trả về dữ liệu dưới dạng JSON có cấu trúc chính xác theo schema quy định. KHÔNG trả về bất kỳ từ ngữ nào ngoài JSON.
+4. Trả lời cực kỳ ngắn gọn, đi thẳng vào vấn đề. Tránh lời chào hỏi rườm rà, lặp lại và giải thích dài dòng không cần thiết để tiết kiệm tối đa token. Tuyệt đối KHÔNG sử dụng dấu sao bôi đậm '**' hay bất cứ định dạng bôi đậm nào trong câu trả lời, hãy dùng chữ IN HOA để làm nổi bật thông số nếu cần.
+
+Dưới đây là Danh sách sản phẩm hiện tại trong cơ sở dữ liệu (sử dụng productId từ đây):
+${JSON.stringify(products.map(p => ({
+  id: p.id,
+  name: p.name,
+  category: p.category,
+  volume: p.volume,
+  quantity: p.quantity,
+  importPrice: p.importPrice,
+  sellPrice: p.sellPrice,
+  bottles300: p.bottles300,
+  bottles500: p.bottles500,
+  bulkLiters: p.bulkLiters
+})))}
+
+Số liệu thống kê kho hàng hiện tại:
+- Tổng số lượng tồn kho (thành phẩm): ${totalInventory} cái/chai
+- Sản phẩm sắp hết hàng (tồn <= 10): ${JSON.stringify(lowStockProducts.map(p => ({ id: p.id, name: p.name, quantity: p.quantity })))}
+- Doanh thu tháng này: ${monthlyRev.toLocaleString('vi-VN')}đ (Lợi nhuận dự tính: ${monthlyProfit.toLocaleString('vi-VN')}đ)
+- Thời gian hệ thống hiện tại: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}
+
+Cú pháp lệnh đặc biệt của hệ thống (suy luận từ tin nhắn người dùng):
+1. NHẬP KHO (IMPORT): Thêm số lượng sản phẩm.
+   - Nếu là dầu gội, cần xác định dung tích (300ml, 500ml) hoặc hàng xá (bulk - đơn vị Lít).
+2. XUẤT KHO (EXPORT): Xuất bán hàng hoặc giảm kho.
+   - Kiểm tra xem số lượng tồn kho có đủ không trước khi tạo action.
+3. SẢN XUẤT (PRODUCTION): Chuyển đổi từ dầu gội hàng xá (bulk, đơn vị Lít) sang chai thành phẩm (300ml hoặc 500ml).
+   - Ví dụ: "sản xuất 10 chai bồ kết 300ml" nghĩa là: giảm bulkLiters của sản phẩm Bồ Kết đi 10 * 0.3 = 3 Lít, đồng thời tăng bottles300 thêm 10 chai.
+   - Cần kiểm tra xem bulkLiters của sản phẩm đó có đủ hay không. Nếu không đủ, ghi nhận lỗi và giải thích trong directReply.
+4. CẬP NHẬT GIÁ (PRICE_UPDATE): Thay đổi giá nhập (importPrice) hoặc giá bán (sellPrice).
+5. TẠO MỚI SẢN PHẨM (CREATE_PRODUCT): Thêm sản phẩm mới hoàn toàn.
+6. XÓA SẢN PHẨM (DELETE_PRODUCT): Xóa sản phẩm khỏi hệ thống.
+7. TRA CỨU VẬN ĐƠN (TRACK_WAYBILL): Tra cứu lịch trình vận chuyển khi người dùng cung cấp mã vận đơn (trackingNumber, ví dụ: "SPXVN061416100466") của nhà vận chuyển (carrier, mặc định "SPX Express" nếu không nói rõ).
+
+QUY TẮC PHÂN TÍCH:
+- Hãy đối chiếu tên sản phẩm người dùng viết (có thể viết tắt, không dấu, ví dụ: "dau goi bo ket", "bokat", "bo", "gung", "xit") với danh sách sản phẩm thực tế để lấy đúng productId.
+- Các viết tắt thông dụng: "bo" / "bo ket" -> Bồ Kết, "gung" -> Ginger, "xit" -> Xịt tóc, "u" -> Ủ tóc, "dau goi" -> Dầu gội, "k" -> 1.000đ, "triệu" -> 1.000.000đ.
+- Nếu người dùng cung cấp mã vận đơn (như SPXVN061416100466) trực tiếp bằng chữ, hoặc nếu người dùng tải lên hình ảnh / tệp PDF / gửi link PDF chứa mã vận đơn, hãy phân tích kỹ nội dung tệp/hình ảnh để tìm mã vận đơn đó. Khi phát hiện mã vận đơn, hãy suy luận hành động TRACK_WAYBILL và trích xuất đúng trackingNumber và carrier.
+- Nếu người dùng chỉ hỏi han, chào hỏi hoặc yêu cầu báo cáo/dự báo phân tích mà không thay đổi cơ sở dữ liệu, hãy để danh sách "actions" trống và trả lời trực tiếp trong "directReply".
+- Cố gắng diễn đạt thân thiện, rõ ràng, sử dụng các ký hiệu emoji để giao diện sinh động.
+
+Yêu cầu định dạng JSON đầu ra (phải là JSON hợp lệ):
+{
+  "explanation": "Giải thích ngắn gọn lập luận",
+  "action": "IMPORT" | "EXPORT" | "PRODUCTION" | "CREATE_PRODUCT" | "DELETE_PRODUCT" | "PRICE_UPDATE" | "TRACK_WAYBILL" | "REPORT" | "PREDICT" | "NONE",
+  "actions": [
+    {
+      "type": "IMPORT" | "EXPORT" | "PRODUCTION" | "CREATE_PRODUCT" | "DELETE_PRODUCT" | "PRICE_UPDATE" | "TRACK_WAYBILL",
+      "productId": 12, // Cho sản phẩm
+      "trackingNumber": "SPXVN061416100466", // Bắt buộc cho TRACK_WAYBILL
+      "carrier": "SPX Express", // Cho TRACK_WAYBILL
+      "productName": "Tên sản phẩm mới hoặc tên khớp",
+      "quantity": 10, // số lượng (áp dụng cho chai/cái)
+      "format": "300ml" | "500ml" | "bulk" | null, // Định dạng chai hoặc hàng xá bulk
+      "price": 85000, // Giá tiền (nếu có cập nhật hoặc nhập với giá mới)
+      "priceField": "importPrice" | "sellPrice", // Cho PRICE_UPDATE
+      "volume": "300ml" | "500ml" | "Bulk", // e.g. "300ml" cho sản phẩm mới
+      "category": "Dầu gội" | "Dầu xả" | "Chăm sóc" | "Nguyên liệu", // Cho CREATE_PRODUCT
+      "note": "Mô tả ngắn gọn về hành động này"
+    }
+  ],
+  "directReply": "Nội dung phản hồi chi tiết bằng tiếng Việt gửi tới người dùng. Hỗ trợ định dạng markdown (danh sách dòng, bảng biểu, emoji) để làm nổi bật thông số. Tuyệt đối KHÔNG dùng dấu sao bôi đậm '**' hay bất cứ định dạng bôi đậm nào khác để tối ưu hóa lượng token sử dụng, hãy viết chữ thường/hoa bình thường hoặc viết IN HOA khi cần làm nổi bật."
+}
+`;
+
+      const model = genAI.getGenerativeModel({
+        model: "gemini-flash-latest",
+        systemInstruction: systemInstruction,
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.1
+        }
+      });
+
+      // Check for file object in request or download link from message
+      let fileObj = null;
+      if (file && file.data && file.mimeType) {
+        fileObj = {
+          data: file.data, // base64 string
+          mimeType: file.mimeType
+        };
+      } else if (message) {
+        // Look for PDF or image URLs in the message text
+        const mediaUrlRegex = /(https?:\/\/[^\s]+(?:\.pdf|\.png|\.jpe?g|\.webp))/i;
+        const match = message.match(mediaUrlRegex);
+        if (match) {
+          const fileUrl = match[1];
+          try {
+            console.log(`Downloading media from link: ${fileUrl}`);
+            const fetchRes = await fetch(fileUrl);
+            if (fetchRes.ok) {
+              const buffer = await fetchRes.arrayBuffer();
+              const base64Data = Buffer.from(buffer).toString("base64");
+              let mimeType = "application/pdf";
+              if (fileUrl.toLowerCase().endsWith(".png")) mimeType = "image/png";
+              else if (fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg")) mimeType = "image/jpeg";
+              else if (fileUrl.toLowerCase().endsWith(".webp")) mimeType = "image/webp";
+              
+              fileObj = {
+                data: base64Data,
+                mimeType: mimeType
+              };
+              console.log("Downloaded file successfully, mimeType:", mimeType);
+            }
+          } catch (e) {
+            console.error("Error downloading file from link:", e);
+          }
+        }
+      }
+
+      const prompt = `
+Lịch sử chat gần đây:
+${chatContext.map(c => `User: ${c.user}\nAssistant: ${c.assistant}`).join("\n\n")}
+
+Tin nhắn mới của người dùng: "${message || 'Xem tệp đính kèm'}"
+
+Hãy xử lý tin nhắn mới này và xuất ra JSON theo đúng định dạng được chỉ định ở system instruction.
+`;
+
+      const parts = [{ text: prompt }];
+      if (fileObj) {
+        parts.push({
+          inlineData: {
+            data: fileObj.data,
+            mimeType: fileObj.mimeType
+          }
+        });
+      }
+
+      const chatResult = await model.generateContent(parts);
+      
+      const responseText = chatResult.response.text();
+      let geminiResponse;
+      try {
+        geminiResponse = JSON.parse(responseText);
+      } catch (err) {
+        const cleanedText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+        geminiResponse = JSON.parse(cleanedText);
+      }
+
+      // Execute actions
+      let executionResults = [];
+      if (geminiResponse.actions && geminiResponse.actions.length > 0) {
+        executionResults = await executeActions(geminiResponse.actions, req.user);
+      }
+
+      // Construct final reply
+      let finalReply = geminiResponse.directReply || "";
+      if (executionResults.length > 0) {
+        const successList = executionResults.filter(r => r.success);
+        const errorList = executionResults.filter(r => r.error);
+        
+        let resultSummary = "\n\n### ⚙️ Cập nhật hệ thống:\n";
+        let hasTrack = false;
+        let trackInfoText = "";
+
+        if (successList.length > 0) {
+          successList.forEach(r => {
+            if (r.action === "IMPORT") {
+              const fmtLabel = r.format === "bulk" ? "Lít hàng xá" : `chai ${r.format || ''}`;
+              resultSummary += `- ✅ **Nhập kho:** +${r.quantity} ${fmtLabel} **${r.product}** thành công.\n`;
+            } else if (r.action === "EXPORT") {
+              const fmtLabel = r.format === "bulk" ? "Lít hàng xá" : `chai ${r.format || ''}`;
+              resultSummary += `- ✅ **Xuất kho:** -${r.quantity} ${fmtLabel} **${r.product}** thành công.\n`;
+            } else if (r.action === "PRODUCTION") {
+              resultSummary += `- ✅ **Sản xuất:** Đóng chai thành công **${r.quantity}** chai **${r.format}** **${r.product}** từ nguyên liệu xá.\n`;
+            } else if (r.action === "CREATE_PRODUCT") {
+              resultSummary += `- ✅ **Thêm mới:** Sản phẩm **${r.product}** (${r.volume}) đã được tạo.\n`;
+            } else if (r.action === "DELETE_PRODUCT") {
+              resultSummary += `- ✅ **Xóa:** Sản phẩm **${r.product}** đã được gỡ khỏi hệ thống.\n`;
+            } else if (r.action === "PRICE_UPDATE") {
+              resultSummary += `- ✅ **Cập nhật giá:** Cập nhật ${r.priceField === 'importPrice' ? 'giá nhập' : 'giá bán'} của **${r.product}** thành **${r.price.toLocaleString('vi-VN')}đ**.\n`;
+            } else if (r.action === "TRACK_WAYBILL") {
+              hasTrack = true;
+              trackInfoText = `📦 MÃ VẬN ĐƠN ${r.carrier.toUpperCase()}: ${r.trackingNumber}\n🚚 TRẠNG THÁI: ${r.status.toUpperCase()}\n`;
+              if (r.latestEvent) {
+                trackInfoText += `⏰ MỐC THỜI GIAN MỚI NHẤT: ${r.latestEvent}\n`;
+              }
+              if (r.shippingAddress) {
+                trackInfoText += `📍 VỊ TRÍ/DỰ KIẾN: ${r.shippingAddress}\n`;
+              }
+              trackInfoText += `\n🔄 Đã đồng bộ thông tin vận đơn này vào trang quản lý Vận đơn trên hệ thống.`;
+            }
+          });
+        }
+        if (errorList.length > 0) {
+          errorList.forEach(r => {
+            resultSummary += `- ⚠️ **Lỗi:** ${r.error}\n`;
+          });
+        }
+        
+        if (hasTrack) {
+          finalReply = trackInfoText;
+          if (errorList.length > 0) {
+            finalReply += "\n\n### ⚙️ Lỗi hệ thống:\n" + errorList.map(r => `- ⚠️ **Lỗi:** ${r.error}`).join("\n");
+          }
+        } else {
+          finalReply += resultSummary;
+        }
+      }
+
+      const finalAction = geminiResponse.action || "NONE";
+      const resp = {
+        success: executionResults.length > 0 ? executionResults.some(r => r.success) : true,
+        reply: finalReply,
+        data: executionResults.length > 0 ? executionResults : [{ action: finalAction, summary: geminiResponse.explanation }],
+        action: finalAction
+      };
+
+      await prisma.chatHistory.create({
+        data: { message, response: JSON.stringify(resp) }
+      });
+
+      return res.json(resp);
+
+    } catch (e) {
+      console.error("Gemini Assistant processing failed, falling back to rules:", e);
+    }
+  }
+
+  // Fallback to rules-based chatbot
+  return fallbackRulesChat(req, res, message, prevProduct);
+};
+
 const getHistory = async (req, res) => {
   try {
     const history = await prisma.chatHistory.findMany({
@@ -1261,9 +1905,9 @@ const getHistory = async (req, res) => {
       let replyText = "";
       try {
         const respObj = JSON.parse(h.response);
-        replyText = (respObj.reply || h.response).replace(/\*\*/g, "");
+        replyText = respObj.reply || h.response;
       } catch (e) {
-        replyText = h.response.replace(/\*\*/g, "");
+        replyText = h.response;
       }
       return [
         { role: "user", text: h.message },

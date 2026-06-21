@@ -80,4 +80,20 @@ model ChatHistory {
   @@index([createdAt])
 }
 
+model Waybill {
+  id             Int      @id @default(autoincrement())
+  trackingNumber String   @unique
+  carrier        String
+  status         String
+  shipperName    String?
+  shipperPhone   String?
+  shippingAddress String?
+  weight         Float?
+  history        String?  // JSON string storing tracking history log
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([trackingNumber])
+}
+
 // role and action stored as strings for SQLite compatibility

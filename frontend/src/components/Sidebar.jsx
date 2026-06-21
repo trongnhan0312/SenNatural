@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { Home, Package, PlusCircle, ArrowUpRight, Clock3, BarChart3, MessageSquare, Users, Settings } from "lucide-react";
+import { Home, Package, PlusCircle, ArrowUpRight, Clock3, BarChart3, MessageSquare, Users, Settings, Truck } from "lucide-react";
 
 const items = [
   { to: "/", label: "Dashboard", icon: Home },
@@ -8,8 +8,8 @@ const items = [
   { to: "/inventory/import", label: "Nhập kho", icon: PlusCircle },
   { to: "/inventory/export", label: "Xuất kho", icon: ArrowUpRight },
   { to: "/inventory/history", label: "Lịch sử", icon: Clock3 },
+  { to: "/waybills", label: "Vận đơn", icon: Truck },
   { to: "/statistic", label: "Thống kê", icon: BarChart3 },
-  { to: "/ai", label: "AI Chat", icon: MessageSquare },
   { to: "/users", label: "Nhân sự", icon: Users },
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -62,7 +62,7 @@ export default function Sidebar({ open, onClose }) {
             className="w-full h-28 object-cover rounded-xl mb-3 shadow-sm"
           />
           <p className="font-bold text-slate-700 uppercase tracking-wider mb-1">Trợ giúp nhanh</p>
-          <p>Dùng tab <strong>AI Chat</strong> để gõ lệnh bằng Tiếng Việt giúp nhập xuất hoặc chỉnh sửa hàng nhanh chóng.</p>
+          <p>Bấm vào <strong>Bong bóng AI</strong> ở góc dưới bên phải để gõ lệnh Tiếng Việt tự nhiên giúp quản lý kho nhanh chóng.</p>
         </div>
       </div>
     </aside>

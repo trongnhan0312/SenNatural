@@ -11,6 +11,7 @@ import History from "./pages/History";
 import Statistics from "./pages/Statistics";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
+import Waybills from "./pages/Waybills";
 
 const Private = ({ children }) => {
   const token = localStorage.getItem("token");
@@ -43,13 +44,7 @@ export default function App() {
       />
       <Route
         path="/ai"
-        element={
-          <Private>
-            <Layout>
-              <AIChat />
-            </Layout>
-          </Private>
-        }
+        element={<Navigate to="/" />}
       />
       <Route
         path="/inventory/import"
@@ -77,6 +72,16 @@ export default function App() {
           <Private>
             <Layout>
               <History />
+            </Layout>
+          </Private>
+        }
+      />
+      <Route
+        path="/waybills"
+        element={
+          <Private>
+            <Layout>
+              <Waybills />
             </Layout>
           </Private>
         }

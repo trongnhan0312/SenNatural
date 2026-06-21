@@ -1,9 +1,11 @@
+const path = require("path");
+const dotenv = require("dotenv");
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
 const express = require("express");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const routes = require("./routes");
 const prisma = require("./prismaClient");
-dotenv.config();
 
 const app = express();
 app.use(cors());

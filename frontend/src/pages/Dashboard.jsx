@@ -13,6 +13,8 @@ import {
   RefreshCw,
   Cpu,
   X,
+  Paperclip,
+  FileText,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -262,9 +264,31 @@ export default function Dashboard() {
     },
   ]);
   const [aiLoading, setAiLoading] = React.useState(false);
-  const chatEndRef = React.useRef(null);
+  const chatContainerRef = React.useRef(null);
   const [isChatOpen, setIsChatOpen] = React.useState(false);
-  const drawerChatEndRef = React.useRef(null);
+  const drawerChatContainerRef = React.useRef(null);
+  const [selectedFile, setSelectedFile] = React.useState(null);
+  const fileInputRef = React.useRef(null);
+  const drawerFileInputRef = React.useRef(null);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      alert("Tệp tin quá lớn. Vui lòng chọn tệp dưới 4MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64Data = reader.result.split(",")[1];
+      setSelectedFile({
+        data: base64Data,
+        mimeType: file.type,
+        name: file.name
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Glow triggers when inventory quantities change
   const [glowBoket, setGlowBoket] = React.useState(false);
@@ -292,11 +316,16 @@ export default function Dashboard() {
   }, []);
 
   React.useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    if (isChatOpen) {
-      setTimeout(() => {
-        drawerChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+    if (isChatOpen && drawerChatContainerRef.current) {
+      const timer = setTimeout(() => {
+        if (drawerChatContainerRef.current) {
+          drawerChatContainerRef.current.scrollTop = drawerChatContainerRef.current.scrollHeight;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [aiHistory, isChatOpen]);
 
@@ -344,16 +373,32 @@ export default function Dashboard() {
   const handleSendAi = async (e, customText = null) => {
     e?.preventDefault();
     const query = (customText || aiMsg).trim();
-    if (!query) return;
+    if (!query && !selectedFile) return;
 
     setAiLoading(true);
-    setAiHistory((h) => [...h, { role: "user", text: query }]);
+    setAiHistory((h) => [...h, { 
+      role: "user", 
+      text: query + (selectedFile ? `\n[Tệp đính kèm: ${selectedFile.name}]` : "") 
+    }]);
     if (!customText) setAiMsg("");
+
+    const payload = { message: query };
+    if (selectedFile) {
+      payload.file = {
+        data: selectedFile.data,
+        mimeType: selectedFile.mimeType
+      };
+    }
+
+    // Clear file selection immediately
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (drawerFileInputRef.current) drawerFileInputRef.current.value = "";
 
     try {
       const res = await axios.post(
         api("/ai/chat"),
-        { message: query },
+        payload,
         {
           headers: { Authorization: "Bearer " + localStorage.getItem("token") },
         },
@@ -949,25 +994,36 @@ export default function Dashboard() {
         </div>
 
         {/* Right Sidebar - AI Assistant */}
-        <aside className="hidden xl:flex rounded-[36px] border border-white/50 bg-[#FAF6F0]/60 p-5 shadow-soft backdrop-blur-xl flex-col justify-between h-fit xl:h-[calc(100vh-6rem)] static xl:sticky top-24 min-w-[300px]">
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* AI Title branding */}
-            <div className="flex items-center gap-2 border-b border-slate-300/40 pb-3 mb-3">
-              <div className="rounded-xl bg-[#0f5132] p-2 text-white shadow-md">
-                <Sparkles size={16} />
+        {isChatOpen && (
+          <aside className="hidden xl:flex rounded-[36px] border border-white/50 bg-[#FAF6F0]/60 p-5 shadow-soft backdrop-blur-xl flex-col justify-between h-fit xl:h-[calc(100vh-6rem)] static xl:sticky top-24 min-w-[300px]">
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* AI Title branding */}
+              <div className="flex items-center justify-between border-b border-slate-300/40 pb-3 mb-3 w-full">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-xl bg-[#0f5132] p-2 text-white shadow-md">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 uppercase">
+                      Trợ lý AI WebSen
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-semibold">
+                      Công cụ điều khiển tự động
+                    </p>
+                  </div>
+                </div>
+                {/* Close Button for Desktop */}
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(false)}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg bg-white/50 border border-slate-200 text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
               </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase">
-                  Trợ lý AI WebSen
-                </h3>
-                <p className="text-[10px] text-slate-500 font-semibold">
-                  Công cụ điều khiển tự động
-                </p>
-              </div>
-            </div>
 
             {/* Messages box */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[300px]">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[300px]">
               {aiHistory.map((item, i) => (
                 <div
                   key={i}
@@ -1001,7 +1057,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
-              <div ref={chatEndRef} />
             </div>
 
             {/* Suggestion triggers */}
@@ -1035,27 +1090,65 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Selected File Preview */}
+          {selectedFile && (
+            <div className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-between text-[10px] text-slate-600 gap-2 mt-2">
+              <div className="flex items-center gap-1 min-w-0">
+                <FileText size={12} className="text-primary shrink-0" />
+                <span className="truncate font-semibold">{selectedFile.name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                  if (drawerFileInputRef.current) drawerFileInputRef.current.value = "";
+                }}
+                className="p-0.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded transition cursor-pointer"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          )}
+
           {/* Form prompts input */}
-          <form onSubmit={handleSendAi} className="mt-4 flex gap-2">
+          <form onSubmit={handleSendAi} className="mt-4 flex gap-2 items-center">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*,application/pdf"
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={aiLoading}
+              className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm text-slate-500 hover:text-slate-800 transition disabled:opacity-60 flex items-center justify-center cursor-pointer"
+              title="Tải ảnh hoặc tài liệu PDF"
+            >
+              <Paperclip size={14} />
+            </button>
             <input
               value={aiMsg}
               onChange={(e) => setAiMsg(e.target.value)}
               disabled={aiLoading}
               className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-              placeholder="Gửi câu lệnh kho..."
+              placeholder="Gửi câu lệnh..."
             />
             <button
               type="submit"
               disabled={aiLoading}
-              className="rounded-xl bg-primary text-white p-2.5 shadow-md transition hover:bg-slate-900 disabled:opacity-60 flex items-center justify-center"
+              className="rounded-xl bg-primary text-white p-2.5 shadow-md transition hover:bg-slate-900 disabled:opacity-60 flex items-center justify-center cursor-pointer"
             >
               <Send size={14} />
             </button>
           </form>
         </aside>
+      )}
       </div>
 
-      {/* Floating Action Button for AI Chat on Mobile/Tablet */}
+      {/* Floating Action Button for AI Chat */}
       {!isChatOpen && (
         <motion.button
           initial={{ scale: 0, opacity: 0 }}
@@ -1063,7 +1156,7 @@ export default function Dashboard() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setIsChatOpen(true)}
-          className="fixed bottom-6 right-6 z-40 xl:hidden flex h-14 w-14 items-center justify-center rounded-full bg-[#0f5132] text-white shadow-lg shadow-[#0f5132]/35 border border-white/20 cursor-pointer"
+          className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#0f5132] text-white shadow-lg shadow-[#0f5132]/35 border border-white/20 cursor-pointer"
         >
           <Sparkles size={24} className="animate-pulse" />
         </motion.button>
@@ -1116,7 +1209,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Messages box */}
-                <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[300px]">
+                <div ref={drawerChatContainerRef} className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[300px]">
                   {aiHistory.map((item, i) => (
                     <div
                       key={i}
@@ -1150,7 +1243,6 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
-                  <div ref={drawerChatEndRef} />
                 </div>
 
                 {/* Suggestion triggers */}
@@ -1187,19 +1279,56 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Selected File Preview for Mobile */}
+              {selectedFile && (
+                <div className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-between text-[10px] text-slate-600 gap-2 mt-2">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <FileText size={12} className="text-primary shrink-0" />
+                    <span className="truncate font-semibold">{selectedFile.name}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFile(null);
+                      if (drawerFileInputRef.current) drawerFileInputRef.current.value = "";
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    className="p-0.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded transition cursor-pointer"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
               {/* Form prompts input */}
-              <form onSubmit={handleSendAi} className="mt-4 flex gap-2">
+              <form onSubmit={handleSendAi} className="mt-4 flex gap-2 items-center">
+                <input
+                  type="file"
+                  ref={drawerFileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => drawerFileInputRef.current?.click()}
+                  disabled={aiLoading}
+                  className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm text-slate-500 hover:text-slate-800 transition disabled:opacity-60 flex items-center justify-center cursor-pointer"
+                  title="Tải ảnh hoặc tài liệu PDF"
+                >
+                  <Paperclip size={14} />
+                </button>
                 <input
                   value={aiMsg}
                   onChange={(e) => setAiMsg(e.target.value)}
                   disabled={aiLoading}
                   className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                  placeholder="Gửi câu lệnh kho..."
+                  placeholder="Gửi câu lệnh..."
                 />
                 <button
                   type="submit"
                   disabled={aiLoading}
-                  className="rounded-xl bg-primary text-white p-2.5 shadow-md transition hover:bg-slate-900 disabled:opacity-60 flex items-center justify-center"
+                  className="rounded-xl bg-primary text-white p-2.5 shadow-md transition hover:bg-slate-900 disabled:opacity-60 flex items-center justify-center cursor-pointer"
                 >
                   <Send size={14} />
                 </button>

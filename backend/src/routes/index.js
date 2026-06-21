@@ -7,6 +7,7 @@ const ai = require("./ai");
 const users = require("./users");
 const exportRoutes = require("./export");
 const statistic = require("./statistic");
+const waybill = require("./waybill");
 
 router.use("/auth", auth);
 router.use("/products", products);
@@ -15,5 +16,6 @@ router.use("/ai", ai);
 router.use("/users", users);
 router.use("/export", exportRoutes);
 router.use("/statistic", statistic);
+router.use("/waybill", waybill);
 
 module.exports = router;

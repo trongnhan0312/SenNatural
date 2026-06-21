@@ -1,6 +1,7 @@
 import React from "react";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
+import AIChat from "../pages/AIChat";
 
 export default function Layout({ children }) {
   const [open, setOpen] = React.useState(false);
@@ -20,6 +21,7 @@ export default function Layout({ children }) {
           </main>
         </div>
       </div>
+      <AIChat />
     </div>
   );
 }
